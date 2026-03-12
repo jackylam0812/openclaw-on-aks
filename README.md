@@ -2,7 +2,7 @@
 
 ## Introduction
 
-This blueprint deploys OpenClaw AI agents with sandbox isolation using Kata Containers on Azure Kubernetes Service (AKS), integrated with LiteLLM proxy for Claude Opus 4.6 access via Azure OpenAI. The solution provides secure, isolated agent environments for Slack and Feishu integrations with enterprise-grade security, scalability, and observability.
+This blueprint deploys OpenClaw AI agents with sandbox isolation using Kata Containers on Azure Kubernetes Service (AKS), integrated with LiteLLM proxy for GPT-5.4 (Azure OpenAI). The solution provides secure, isolated agent environments for Slack and Feishu integrations with enterprise-grade security, scalability, and observability.
 
 **Key Features:**
 
@@ -116,7 +116,7 @@ This deployment creates:
 
 **AI & Proxy:**
 - LiteLLM proxy with standalone PostgreSQL
-- Claude Opus 4.6 model via Azure OpenAI
+- GPT-5.4 model via Azure OpenAI
 - Workload Identity for secure Azure OpenAI access
 
 **Monitoring:**
@@ -153,7 +153,7 @@ kubectl get sandbox -A
 LiteLLM is deployed as an internal service accessible within the cluster:
 
 - **Service**: `litellm.litellm.svc.cluster.local:4000`
-- **Model**: Claude Opus 4.6 (mapped to Azure OpenAI)
+- **Model**: GPT-5.4 (mapped to Azure OpenAI)
 - **Database**: Standalone PostgreSQL
 
 Retrieve the master key:
@@ -173,7 +173,7 @@ LITELLM_API_KEY=$(kubectl run -n litellm gen-key --rm -i --restart=Never --image
   curl -s -X POST http://litellm:4000/key/generate \
   -H "Authorization: Bearer $MASTER_KEY" \
   -H "Content-Type: application/json" \
-  -d '{"models": ["claude-opus-4-6"], "duration": "30d"}' | grep -o '"key":"[^"]*"' | cut -d'"' -f4)
+  -d '{"models": ["gpt-5.4"], "duration": "30d"}' | grep -o '"key":"[^"]*"' | cut -d'"' -f4)
 
 echo "LiteLLM API Key: $LITELLM_API_KEY"
 ```
@@ -191,13 +191,13 @@ kubectl run -n litellm test --rm -i --restart=Never --image=curlimages/curl -- \
   curl -s -X POST http://litellm:4000/v1/chat/completions \
   -H "Authorization: Bearer $MASTER_KEY" \
   -H "Content-Type: application/json" \
-  -d '{"model": "claude-opus-4-6", "messages": [{"role": "user", "content": "Hi"}], "max_tokens": 20}'
+  -d '{"model": "gpt-5.4", "messages": [{"role": "user", "content": "Hi"}], "max_tokens": 20}'
 ```
 
 This test confirms:
 - LiteLLM proxy is running and accessible
 - Workload Identity authentication to Azure OpenAI is working
-- Claude Opus 4.6 model is properly configured
+- GPT-5.4 model is properly configured
 - The proxy can successfully route requests to Azure OpenAI
 
 ## OpenClaw Sandbox Deployment
@@ -254,7 +254,7 @@ kubectl logs -f openclaw-slack-sandbox
 The sandbox will:
 - Create a Kata VM-isolated pod on nested-virtualization capable nodes
 - Mount a 2Gi Azure Disk Premium volume for workspace persistence
-- Connect to LiteLLM proxy for Claude Opus 4.6 access
+- Connect to LiteLLM proxy for GPT-5.4 access
 - Connect to Slack via Socket Mode
 
 #### 4. Test in Slack
@@ -264,7 +264,7 @@ Once deployed, test the integration:
 1. Open your Slack workspace
 2. Find the bot in the Apps section or direct message it
 3. Send a message like "Hello" or "What can you do?"
-4. The bot should respond using Claude Opus 4.6 via LiteLLM
+4. The bot should respond using GPT-5.4 via LiteLLM
 
 **Troubleshooting:**
 - If no response, check pod logs: `kubectl logs -f openclaw-slack-sandbox`
@@ -316,7 +316,7 @@ kubectl logs -f openclaw-feishu-sandbox
 The sandbox will:
 - Create a Kata VM-isolated pod on nested-virtualization capable nodes
 - Mount a 2Gi Azure Disk Premium volume for workspace persistence
-- Connect to LiteLLM proxy for Claude Opus 4.6 access
+- Connect to LiteLLM proxy for GPT-5.4 access
 - Connect to Feishu via webhook
 
 #### 4. Test in Feishu
@@ -326,7 +326,7 @@ Once deployed, test the integration:
 1. Open your Feishu app
 2. Find the bot in the app list or direct message it
 3. Send a message like "Hello" or "What can you do?"
-4. The bot should respond using Claude Opus 4.6 via LiteLLM
+4. The bot should respond using GPT-5.4 via LiteLLM
 
 **Troubleshooting:**
 - If no response, check pod logs: `kubectl logs -f openclaw-feishu-sandbox`
@@ -501,7 +501,7 @@ kubectl run -n litellm gen-key --rm -i --restart=Never --image=curlimages/curl -
   curl -s -X POST http://litellm:4000/key/generate \
   -H "Authorization: Bearer $MASTER_KEY" \
   -H "Content-Type: application/json" \
-  -d '{"models": ["claude-opus-4-6"], "duration": "30d"}'
+  -d '{"models": ["gpt-5.4"], "duration": "30d"}'
 ```
 
 #### 4. Azure OpenAI Access Denied
@@ -627,8 +627,8 @@ OpenClaw sandboxes connect to LiteLLM proxy with:
         "apiKey": "<generated-key>",
         "api": "openai-completions",
         "models": [{
-          "id": "claude-opus-4-6",
-          "name": "Claude Opus 4.6 (LiteLLM)",
+          "id": "gpt-5.4",
+          "name": "GPT-5.4 (LiteLLM)",
           "reasoning": true,
           "input": ["text", "image"],
           "contextWindow": 200000,
@@ -639,7 +639,7 @@ OpenClaw sandboxes connect to LiteLLM proxy with:
   },
   "agents": {
     "defaults": {
-      "model": { "primary": "litellm/claude-opus-4-6" }
+      "model": { "primary": "litellm/gpt-5.4" }
     }
   }
 }

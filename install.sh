@@ -104,7 +104,7 @@ echo "   kubectl run -n litellm gen-key --rm -i --restart=Never --image=curlimag
 echo "     curl -s -X POST http://litellm:4000/key/generate \\"
 echo "     -H \"Authorization: Bearer \$MASTER_KEY\" \\"
 echo "     -H \"Content-Type: application/json\" \\"
-echo "     -d '{\"models\": [\"claude-opus-4-6\"], \"duration\": \"30d\"}'"
+echo "     -d '{\"models\": [\"gpt-5.4\"], \"duration\": \"30d\"}'"
 echo ""
 echo "2. Deploy OpenClaw sandbox:"
 echo "   cd examples"

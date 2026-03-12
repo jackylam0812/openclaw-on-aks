@@ -58,10 +58,10 @@ resource "helm_release" "litellm" {
     value = random_password.litellm_db_admin.result
   }
 
-  # Azure OpenAI model - GPT-5.4 (mapped as claude-opus-4-6 for OpenClaw compatibility)
+  # Azure OpenAI model - GPT-5.4 (mapped as gpt-5.4 for OpenClaw compatibility)
   set {
     name  = "proxy_config.model_list[0].model_name"
-    value = "claude-opus-4-6"
+    value = "gpt-5.4"
   }
 
   set {

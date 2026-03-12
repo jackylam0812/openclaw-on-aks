@@ -49,8 +49,8 @@ spec:
                       "api": "openai-completions",
                       "models": [
                         {
-                          "id": "claude-opus-4-6",
-                          "name": "Claude Opus 4.6 (LiteLLM)",
+                          "id": "gpt-5.4",
+                          "name": "GPT-5.4 (LiteLLM)",
                           "reasoning": true,
                           "input": ["text", "image"],
                           "contextWindow": 200000,
@@ -63,7 +63,7 @@ spec:
                 "agents": {
                   "defaults": {
                     "model": {
-                      "primary": "litellm/claude-opus-4-6"
+                      "primary": "litellm/gpt-5.4"
                     },
                     "workspace": "/home/node/.openclaw/workspace"
                   }
