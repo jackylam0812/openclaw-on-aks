@@ -2,9 +2,13 @@ terraform {
   required_version = ">= 1.3.2"
 
   required_providers {
-    aws = {
-      source  = "hashicorp/aws"
-      version = "~> 5.95"
+    azurerm = {
+      source  = "hashicorp/azurerm"
+      version = "~> 4.14"
+    }
+    azuread = {
+      source  = "hashicorp/azuread"
+      version = "~> 3.1"
     }
     kubernetes = {
       source  = "hashicorp/kubernetes"
@@ -17,6 +21,10 @@ terraform {
     kubectl = {
       source  = "alekc/kubectl"
       version = ">= 2.0"
+    }
+    random = {
+      source  = "hashicorp/random"
+      version = "~> 3.6"
     }
   }
 }

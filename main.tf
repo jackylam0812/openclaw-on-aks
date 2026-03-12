@@ -1,64 +1,62 @@
-provider "aws" {
-  region = local.region
+provider "azurerm" {
+  features {
+    resource_group {
+      prevent_deletion_if_contains_resources = false
+    }
+    key_vault {
+      purge_soft_delete_on_destroy = true
+    }
+  }
 }
 
-provider "aws" {
-  alias  = "ecr"
-  region = "us-east-1"
-}
+provider "azuread" {}
 
 provider "kubernetes" {
-  host                   = module.eks.cluster_endpoint
-  cluster_ca_certificate = base64decode(module.eks.cluster_certificate_authority_data)
-  token                  = data.aws_eks_cluster_auth.this.token
+  host                   = azurerm_kubernetes_cluster.main.kube_config[0].host
+  client_certificate     = base64decode(azurerm_kubernetes_cluster.main.kube_config[0].client_certificate)
+  client_key             = base64decode(azurerm_kubernetes_cluster.main.kube_config[0].client_key)
+  cluster_ca_certificate = base64decode(azurerm_kubernetes_cluster.main.kube_config[0].cluster_ca_certificate)
 }
 
 provider "helm" {
   kubernetes {
-    host                   = module.eks.cluster_endpoint
-    cluster_ca_certificate = base64decode(module.eks.cluster_certificate_authority_data)
-    token                  = data.aws_eks_cluster_auth.this.token
+    host                   = azurerm_kubernetes_cluster.main.kube_config[0].host
+    client_certificate     = base64decode(azurerm_kubernetes_cluster.main.kube_config[0].client_certificate)
+    client_key             = base64decode(azurerm_kubernetes_cluster.main.kube_config[0].client_key)
+    cluster_ca_certificate = base64decode(azurerm_kubernetes_cluster.main.kube_config[0].cluster_ca_certificate)
   }
 }
 
 provider "kubectl" {
   apply_retry_count      = 30
-  host                   = module.eks.cluster_endpoint
-  cluster_ca_certificate = base64decode(module.eks.cluster_certificate_authority_data)
+  host                   = azurerm_kubernetes_cluster.main.kube_config[0].host
+  client_certificate     = base64decode(azurerm_kubernetes_cluster.main.kube_config[0].client_certificate)
+  client_key             = base64decode(azurerm_kubernetes_cluster.main.kube_config[0].client_key)
+  cluster_ca_certificate = base64decode(azurerm_kubernetes_cluster.main.kube_config[0].cluster_ca_certificate)
   load_config_file       = false
-  token                  = data.aws_eks_cluster_auth.this.token
 }
 
-data "aws_caller_identity" "current" {}
-data "aws_partition" "current" {}
+data "azurerm_subscription" "current" {}
+data "azurerm_client_config" "current" {}
+data "azuread_client_config" "current" {}
 
-data "aws_eks_cluster_auth" "this" {
-  name = module.eks.cluster_name
-}
-
-data "aws_availability_zones" "available" {
-  filter {
-    name   = "opt-in-status"
-    values = ["opt-in-not-required"]
-  }
-}
-
-data "aws_iam_session_context" "current" {
-  arn = data.aws_caller_identity.current.arn
+# Resource Group
+resource "azurerm_resource_group" "main" {
+  name     = "${var.name}-rg"
+  location = var.location
+  tags     = local.tags
 }
 
 locals {
-  name   = var.name
-  region = var.region
-
+  name               = var.name
+  location           = var.location
+  resource_group     = azurerm_resource_group.main.name
   kata_namespace     = "kata-system"
   openclaw_namespace = "openclaw"
 
-  azs = slice(data.aws_availability_zones.available.names, 0, 3)
-
-  tags = {
+  tags = merge(var.tags, {
     Blueprint  = local.name
-    GithubRepo = "github.com/awslabs/data-on-eks"
+    GithubRepo = "github.com/jackylam0812/openclaw-on-aks"
     Workload   = "openclaw-kata"
-  }
+  })
 }

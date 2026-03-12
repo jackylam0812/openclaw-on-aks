@@ -21,7 +21,7 @@ resource "helm_release" "kube_prometheus_stack" {
           storageSpec = {
             volumeClaimTemplate = {
               spec = {
-                storageClassName = "ebs-sc"
+                storageClassName = "azure-disk-premium"
                 accessModes      = ["ReadWriteOnce"]
                 resources = {
                   requests = {
@@ -45,11 +45,11 @@ resource "helm_release" "kube_prometheus_stack" {
         }
       }
       grafana = {
-        enabled = true
+        enabled       = true
         adminPassword = random_password.grafana_admin.result
         persistence = {
           enabled          = true
-          storageClassName = "ebs-sc"
+          storageClassName = "azure-disk-premium"
           size             = "10Gi"
         }
         service = {
@@ -63,8 +63,8 @@ resource "helm_release" "kube_prometheus_stack" {
   ]
 
   depends_on = [
-    kubernetes_storage_class_v1.ebs_csi_default,
-    module.eks
+    kubernetes_storage_class_v1.azure_disk_premium,
+    azurerm_kubernetes_cluster.main,
   ]
 }
 
@@ -84,6 +84,6 @@ output "grafana_access" {
 }
 
 output "grafana_service_name" {
-  value = "kube-prometheus-stack-grafana"
+  value       = "kube-prometheus-stack-grafana"
   description = "Grafana service name in monitoring namespace"
 }

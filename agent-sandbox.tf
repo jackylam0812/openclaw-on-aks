@@ -6,14 +6,14 @@
 resource "null_resource" "agent_sandbox_core" {
   provisioner "local-exec" {
     command = <<-EOT
-      aws eks update-kubeconfig --region ${local.region} --name ${module.eks.cluster_name}
+      az aks get-credentials --resource-group ${azurerm_resource_group.main.name} --name ${azurerm_kubernetes_cluster.main.name} --overwrite-existing
       kubectl apply -f ${path.module}/agent-sandbox/manifest.yaml
     EOT
   }
 
   depends_on = [
-    module.eks,
-    module.eks.cluster_addons
+    azurerm_kubernetes_cluster.main,
+    azurerm_kubernetes_cluster_node_pool.kata,
   ]
 }
 

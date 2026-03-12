@@ -1,31 +1,29 @@
-# OpenClaw on EKS with Kata Containers and LiteLLM
+# OpenClaw on AKS with Kata Containers and LiteLLM
 
 ## Introduction
 
-This blueprint deploys OpenClaw AI agents with sandbox isolation using Kata containers on Amazon EKS, integrated with LiteLLM proxy for Claude Opus 4.6 access via AWS Bedrock. The solution provides secure, isolated agent environments for Slack and Feishu integrations with enterprise-grade security, scalability, and observability.
+This blueprint deploys OpenClaw AI agents with sandbox isolation using Kata Containers on Azure Kubernetes Service (AKS), integrated with LiteLLM proxy for Claude Opus 4.6 access via Azure OpenAI. The solution provides secure, isolated agent environments for Slack and Feishu integrations with enterprise-grade security, scalability, and observability.
 
 **Key Features:**
 
-- **VM-level Isolation**: Kata containers provide lightweight VM isolation for each sandbox
-- **Autoscaling**: Karpenter automatically provisions bare-metal instances on-demand
-- **Observability**: Prometheus and Grafana for metrics, with pre-built LiteLLM dashboard
+- **VM-level Isolation**: Kata Containers (KataMshvVmIsolation) provide lightweight VM isolation for each sandbox
+- **Autoscaling**: AKS cluster autoscaler provisions Kata nodes on-demand (0-10 nodes)
+- **Observability**: Prometheus and Grafana for metrics, with LiteLLM ServiceMonitor
 - **Sandbox Lifecycle**: CRD-based sandbox management with warm pool and template support
-- **Secure AI Access**: EKS Pod Identity for AWS Bedrock authentication (no static credentials)
+- **Secure AI Access**: Workload Identity for Azure OpenAI authentication (no static credentials)
 - **Multi-channel**: Support for Slack and Feishu integrations
-- **Persistent Workspaces**: EBS-backed storage for agent state and data
+- **Persistent Workspaces**: Azure Disk Premium-backed storage for agent state and data
 
 ## Architecture
 
-- **EKS Cluster**: Managed Kubernetes cluster (v1.31) with core node group and Karpenter autoscaling
-- **Kata Containers**: Lightweight VM isolation using QEMU hypervisor on bare-metal instances
-- **LiteLLM Proxy**: OpenAI-compatible API gateway to AWS Bedrock with PostgreSQL backend
+- **AKS Cluster**: Managed Kubernetes cluster (v1.31) with system node pool and Kata node pool with autoscaling
+- **Kata Containers**: Lightweight VM isolation using AKS-native KataMshvVmIsolation on nested-virtualization capable VMs
+- **LiteLLM Proxy**: OpenAI-compatible API gateway to Azure OpenAI with PostgreSQL backend
 - **OpenClaw Sandboxes**: CRD-managed isolated agent environments with persistent storage
-- **Storage**: EBS CSI driver with gp3 volumes for workspace persistence
-- **Networking**: VPC with public/private subnets across 3 AZs
-- **Security**: EKS Pod Identity for AWS Bedrock access (no long-lived credentials)
+- **Storage**: Azure Disk CSI driver with Premium SSD volumes for workspace persistence
+- **Networking**: VNet with subnets for system nodes, Kata nodes, and pods; NAT Gateway for outbound connectivity
+- **Security**: Workload Identity for Azure OpenAI access (no long-lived credentials), Key Vault for secrets
 - **Observability**: Prometheus (50Gi, 15d retention) and Grafana with LiteLLM metrics
-
-![Architecture Diagram](docs/architecture.png)
 
 ## Deploying the Solution
 
@@ -33,7 +31,7 @@ This blueprint deploys OpenClaw AI agents with sandbox isolation using Kata cont
 
 Ensure that you have installed the following tools on your machine:
 
-1. [AWS CLI](https://docs.aws.amazon.com/cli/latest/userguide/install-cliv2.html)
+1. [Azure CLI](https://learn.microsoft.com/en-us/cli/azure/install-azure-cli)
 2. [kubectl](https://kubernetes.io/docs/tasks/tools/)
 3. [terraform](https://learn.hashicorp.com/tutorials/terraform/install-cli)
 4. [helm](https://helm.sh/docs/intro/install/) (v3.x)
@@ -43,12 +41,12 @@ Ensure that you have installed the following tools on your machine:
 Clone the repository:
 
 ```bash
-git clone https://github.com/hitsub2/openclaw-on-eks
-cd openclaw-on-eks
+git clone https://github.com/jackylam0812/openclaw-on-aks
+cd openclaw-on-aks
 export OPENCLAW_HOME=$(pwd)
 ```
 
-If `OPENCLAW_HOME` is ever unset, you can always set it manually using `export OPENCLAW_HOME=$(pwd)` from your openclaw-kata-eks directory.
+If `OPENCLAW_HOME` is ever unset, you can always set it manually using `export OPENCLAW_HOME=$(pwd)` from your openclaw-on-aks directory.
 
 Run the installation script:
 
@@ -60,26 +58,27 @@ chmod +x install.sh
 **Deploy to a different region:**
 
 ```bash
-# Deploy to ap-southeast-1
-./install.sh --region ap-southeast-1
+# Deploy to westus2
+./install.sh --location westus2
 
-# Deploy to us-east-1 with custom cluster name
-./install.sh --region us-east-1 --cluster-name my-openclaw
+# Deploy to eastus with custom cluster name
+./install.sh --location eastus --cluster-name my-openclaw
 
 # Or use environment variables
-AWS_REGION=ap-southeast-1 ./install.sh
+AZURE_LOCATION=westus2 ./install.sh
 ```
 
 **Available options:**
-- `--region REGION` - AWS region (default: us-west-2)
-- `--cluster-name NAME` - EKS cluster name (default: openclaw-kata-eks)
+- `--location LOCATION` - Azure region (default: eastus2)
+- `--cluster-name NAME` - AKS cluster name (default: openclaw-kata-aks)
 - `--help` - Show help message
 
 The script will:
-- Check prerequisites (aws cli, kubectl, terraform, helm)
+- Check prerequisites (az cli, kubectl, terraform, helm)
+- Verify Azure login status
 - Initialize Terraform
 - Plan and apply infrastructure
-- Configure kubectl
+- Configure kubectl via `az aks get-credentials`
 - Wait for cluster to be ready
 - Display next steps
 
@@ -90,45 +89,45 @@ After successful deployment, Terraform will display:
 ```
 Outputs:
 
-cluster_endpoint = "https://XXXXX.gr7.us-west-2.eks.amazonaws.com"
-cluster_name = "openclaw-kata-eks"
-configure_kubectl = "aws eks --region us-west-2 update-kubeconfig --name openclaw-kata-eks"
-grafana_access = "kubectl port-forward -n monitoring svc/kube-prometheus-stack-grafana 3000:80"
-grafana_admin_password = <sensitive>
-grafana_service_name = "kube-prometheus-stack-grafana"
+cluster_endpoint = "https://openclaw-kata-aks-xxxxx.hcp.eastus2.azmk8s.io:443"
+cluster_name = "openclaw-kata-aks"
+configure_kubectl = "az aks get-credentials --resource-group openclaw-kata-aks-rg --name openclaw-kata-aks"
+resource_group = "openclaw-kata-aks-rg"
+key_vault_name = "openclawkataakskv"
+acr_login_server = "openclawkataaaksacr.azurecr.io"
 kata_namespace = "kata-system"
-litellm_db_admin_password = <sensitive>
-litellm_db_password = <sensitive>
 openclaw_namespace = "openclaw"
 ```
 
 This deployment creates:
 
 **Infrastructure:**
-- EKS cluster (v1.31) with core node group (m5.xlarge, 1-3 nodes)
-- VPC with 3 availability zones, public/private subnets, NAT gateway
-- EBS CSI driver with IRSA role and default StorageClass (gp3, 100Gi root volume)
+- AKS cluster (v1.31) with system node pool (Standard_D4s_v5, 1-3 nodes)
+- VNet with 3 subnets (system nodes, Kata nodes, pods), NAT Gateway
+- Azure Disk CSI driver with default Premium SSD StorageClass
+- Azure Files CSI driver with Premium StorageClass
+- Azure Container Registry (Basic SKU)
+- Azure Key Vault for secrets management
 
 **Compute & Runtime:**
-- Kata containers runtime (QEMU hypervisor) on bare-metal instances
-- Karpenter NodePool for autoscaling (m5.metal, m5d.metal, c5.metal, c5d.metal)
-- Bare-metal nodes with RAID0 NVMe setup (200Gi root volume)
+- Kata Containers runtime (KataMshvVmIsolation) on nested-virtualization capable VMs
+- Kata node pool with autoscaling (Standard_D4s_v3, 0-10 nodes)
 - Agent sandbox controller with CRDs
 
 **AI & Proxy:**
-- LiteLLM proxy with standalone PostgreSQL (50Gi EBS storage)
-- Claude Opus 4.6 model via AWS Bedrock cross-region inference (us-east-1)
-- EKS Pod Identity for secure Bedrock access
+- LiteLLM proxy with standalone PostgreSQL
+- Claude Opus 4.6 model via Azure OpenAI
+- Workload Identity for secure Azure OpenAI access
 
 **Monitoring:**
-- Prometheus with 50Gi EBS storage (15 day retention)
-- Grafana with 10Gi EBS storage (ClusterIP service)
+- Prometheus with 50Gi Azure Disk Premium storage (15 day retention)
+- Grafana with 10Gi Azure Disk Premium storage (ClusterIP service)
 - ServiceMonitor for LiteLLM metrics collection
 
 Configure kubectl:
 
 ```bash
-aws eks --region us-west-2 update-kubeconfig --name openclaw-kata-eks
+az aks get-credentials --resource-group openclaw-kata-aks-rg --name openclaw-kata-aks
 ```
 
 Verify the deployment:
@@ -154,7 +153,7 @@ kubectl get sandbox -A
 LiteLLM is deployed as an internal service accessible within the cluster:
 
 - **Service**: `litellm.litellm.svc.cluster.local:4000`
-- **Model**: Claude Opus 4.6 (`us.anthropic.claude-opus-4-6-v1`)
+- **Model**: Claude Opus 4.6 (mapped to Azure OpenAI)
 - **Database**: Standalone PostgreSQL
 
 Retrieve the master key:
@@ -183,7 +182,7 @@ Use this `LITELLM_API_KEY` value as the `apiKey` in OpenClaw's LiteLLM provider 
 
 ### Test LiteLLM Connection
 
-Verify that LiteLLM can successfully connect to AWS Bedrock and return responses:
+Verify that LiteLLM can successfully connect to Azure OpenAI and return responses:
 
 ```bash
 MASTER_KEY=$(kubectl get secret litellm-masterkey -n litellm -o jsonpath='{.data.masterkey}' | base64 -d)
@@ -197,9 +196,9 @@ kubectl run -n litellm test --rm -i --restart=Never --image=curlimages/curl -- \
 
 This test confirms:
 - LiteLLM proxy is running and accessible
-- Pod Identity authentication to AWS Bedrock is working
+- Workload Identity authentication to Azure OpenAI is working
 - Claude Opus 4.6 model is properly configured
-- The proxy can successfully route requests to Bedrock
+- The proxy can successfully route requests to Azure OpenAI
 
 ## OpenClaw Sandbox Deployment
 
@@ -253,8 +252,8 @@ kubectl logs -f openclaw-slack-sandbox
 ```
 
 The sandbox will:
-- Create a Kata VM-isolated pod on bare-metal nodes
-- Mount a 2Gi EBS volume for workspace persistence
+- Create a Kata VM-isolated pod on nested-virtualization capable nodes
+- Mount a 2Gi Azure Disk Premium volume for workspace persistence
 - Connect to LiteLLM proxy for Claude Opus 4.6 access
 - Connect to Slack via Socket Mode
 
@@ -315,8 +314,8 @@ kubectl logs -f openclaw-feishu-sandbox
 ```
 
 The sandbox will:
-- Create a Kata VM-isolated pod on bare-metal nodes
-- Mount a 2Gi EBS volume for workspace persistence
+- Create a Kata VM-isolated pod on nested-virtualization capable nodes
+- Mount a 2Gi Azure Disk Premium volume for workspace persistence
 - Connect to LiteLLM proxy for Claude Opus 4.6 access
 - Connect to Feishu via webhook
 
@@ -326,7 +325,7 @@ Once deployed, test the integration:
 
 1. Open your Feishu app
 2. Find the bot in the app list or direct message it
-3. Send a message like "你好" or "What can you do?"
+3. Send a message like "Hello" or "What can you do?"
 4. The bot should respond using Claude Opus 4.6 via LiteLLM
 
 **Troubleshooting:**
@@ -366,7 +365,7 @@ A pre-configured Grafana dashboard for LiteLLM is provided in `examples/grafana/
 To import:
 
 1. Access Grafana (see above)
-2. Navigate to **Dashboards** → **Import**
+2. Navigate to **Dashboards** > **Import**
 3. Upload the dashboard file:
    ```bash
    examples/grafana/grafana_dashboard.json
@@ -446,11 +445,11 @@ kubectl run -n litellm test --rm -i --restart=Never --image=curlimages/curl -- \
 # Check Kata nodes
 kubectl get nodes -l katacontainers.io/kata-runtime=true
 
-# Check nodepool
-kubectl get nodepool kata-bare-metal -o yaml
+# Check Kata runtime class
+kubectl get runtimeclass kata-mshv-vm-isolation
 
-# Check Karpenter logs
-kubectl logs -n karpenter -l app.kubernetes.io/name=karpenter --tail=50
+# Check node pool scaling
+az aks nodepool show --resource-group openclaw-kata-aks-rg --cluster-name openclaw-kata-aks --name kata
 ```
 
 ### Common Issues
@@ -459,12 +458,12 @@ kubectl logs -n karpenter -l app.kubernetes.io/name=karpenter --tail=50
 
 **Symptom**: Sandbox pod remains in Pending state
 
-**Solution**: Check if Karpenter provisioned bare-metal nodes
+**Solution**: Check if Kata node pool has scaled up
 
 ```bash
 kubectl get nodes
-kubectl describe nodepool kata-bare-metal
-kubectl logs -n karpenter -l app.kubernetes.io/name=karpenter | grep kata
+az aks nodepool show --resource-group openclaw-kata-aks-rg --cluster-name openclaw-kata-aks --name kata -o table
+kubectl describe pod openclaw-slack-sandbox
 ```
 
 #### 2. Config Validation Errors
@@ -505,27 +504,24 @@ kubectl run -n litellm gen-key --rm -i --restart=Never --image=curlimages/curl -
   -d '{"models": ["claude-opus-4-6"], "duration": "30d"}'
 ```
 
-#### 4. Bedrock Access Denied
+#### 4. Azure OpenAI Access Denied
 
-**Symptom**: "AccessDenied" errors when calling Bedrock
+**Symptom**: "AccessDenied" or "AuthorizationFailed" errors when calling Azure OpenAI
 
-**Solution**: Verify Pod Identity association
+**Solution**: Verify Workload Identity configuration
 
 ```bash
-# Check Pod Identity associations
-aws eks list-pod-identity-associations \
-  --cluster-name openclaw-kata-eks \
-  --region us-west-2
+# Check Managed Identity
+az identity show --resource-group openclaw-kata-aks-rg --name openclaw-kata-aks-litellm-identity
 
-# Check IAM role
-aws iam get-role \
-  --role-name openclaw-kata-eks-litellm-pod-identity \
-  --region us-west-2
+# Check Federated Credential
+az identity federated-credential list --identity-name openclaw-kata-aks-litellm-identity --resource-group openclaw-kata-aks-rg
 
-# Verify role has Bedrock permissions
-aws iam list-attached-role-policies \
-  --role-name openclaw-kata-eks-litellm-pod-identity \
-  --region us-west-2
+# Check role assignment
+az role assignment list --assignee <identity-principal-id> --scope /subscriptions/<subscription-id>
+
+# Verify ServiceAccount has Workload Identity annotation
+kubectl get sa litellm -n litellm -o yaml
 ```
 
 #### 5. Persistent Config Issues
@@ -548,6 +544,13 @@ kubectl apply -f examples/openclaw-slack-sandbox.yaml
 Remove all resources:
 
 ```bash
+chmod +x cleanup.sh
+./cleanup.sh
+```
+
+Or manually:
+
+```bash
 # Delete sandboxes first
 kubectl delete sandbox --all
 
@@ -556,44 +559,37 @@ kubectl get pods -A | grep openclaw
 
 # Destroy infrastructure
 terraform destroy
+
+# Optionally delete the entire resource group
+az group delete --name openclaw-kata-aks-rg --yes --no-wait
 ```
 
-**Note**: Terraform destroy will remove all resources including EBS volumes and data.
+**Note**: Terraform destroy will remove all resources including Azure Disk volumes and data. Deleting the resource group ensures no orphaned resources remain.
 
 ## Cost Optimization
 
-- **Bare-metal instances** (m5.metal, c5.metal) are expensive (~$4-6/hour)
-  - Only provisioned when sandboxes are created
-  - Karpenter automatically scales down after 30 seconds of inactivity
-- **Core node group** runs continuously (~$0.04/hour per t3.medium)
-- **EBS volumes** charged per GB-month (~$0.08/GB-month for gp3)
-- **LiteLLM PostgreSQL** uses 8Gi EBS volume
-- **Bedrock** charges per token (input/output)
+- **Kata node pool** scales to zero when no sandboxes are running
+- **System node pool** (Standard_D4s_v5) runs continuously
+- **Azure Disk Premium** charged per provisioned size
+- **LiteLLM PostgreSQL** uses Azure Disk storage
+- **Azure OpenAI** charges per token (input/output)
+- **NAT Gateway** charged per hour and per GB processed
 
 **Recommendations**:
-- Use Spot instances for non-production workloads
-- Set appropriate Karpenter consolidation policies
-- Monitor Bedrock usage via CloudWatch
-- Delete unused sandboxes and PVCs
+- Kata node pool autoscales 0-10, so no cost when idle
+- Delete unused sandboxes and PVCs to release Azure Disk volumes
+- Monitor Azure OpenAI usage via Azure Portal
+- Use Azure Cost Management to track spending
 
 ## Security Considerations
 
-- **Secrets Management**: Master key and API keys stored in Kubernetes secrets
-- **IAM**: EKS Pod Identity for Bedrock access (no long-lived credentials)
-- **Isolation**: Sandboxes run in Kata VMs with separate kernel
-- **Network**: Consider adding NetworkPolicies for additional isolation
+- **Secrets Management**: Master key and API keys stored in Kubernetes secrets; Azure Key Vault available for additional secrets
+- **Identity**: Workload Identity for Azure OpenAI access (no long-lived credentials)
+- **Isolation**: Sandboxes run in Kata VMs with separate kernel (KataMshvVmIsolation)
+- **Network**: Calico network policies, NAT Gateway for controlled egress
 - **Tokens**: Rotate Slack/Feishu tokens regularly
 - **API Keys**: Set expiration on LiteLLM API keys (default 30 days)
-- **Audit**: Enable EKS audit logging for compliance
-
-## References
-
-- [OpenClaw Documentation](https://github.com/openclaw/openclaw)
-- [LiteLLM Documentation](https://docs.litellm.ai/)
-- [Kata Containers](https://katacontainers.io/)
-- [Karpenter](https://karpenter.sh/)
-- [EKS Best Practices](https://aws.github.io/aws-eks-best-practices/)
-- [AWS Bedrock](https://aws.amazon.com/bedrock/)
+- **Registry**: Azure Container Registry with RBAC (admin access disabled)
 
 ## Sandbox Configuration Details
 
@@ -601,27 +597,22 @@ terraform destroy
 
 Each OpenClaw sandbox runs with:
 
-- **Runtime**: `kata-qemu` - Lightweight VM isolation using QEMU hypervisor
-- **Node Selector**: `katacontainers.io/kata-runtime: "true"` - Scheduled only on bare-metal instances
+- **Runtime**: `kata-mshv-vm-isolation` - AKS-native Kata Containers with Hyper-V isolation
+- **Node Selector**: `katacontainers.io/kata-runtime: "true"` - Scheduled only on Kata node pool
 - **Tolerations**: `kata=true:NoSchedule` - Ensures placement on dedicated Kata nodes
-- **Service Account**: `openclaw-sandbox` - No IAM permissions (LiteLLM handles Bedrock access)
+- **Service Account**: `openclaw-sandbox` - With Workload Identity for Azure OpenAI access
 - **Security Context**:
   - Runs as non-root user (UID 1000, GID 1000)
   - All Linux capabilities dropped
   - Privilege escalation disabled
-  - Read-only root filesystem disabled (required for OpenClaw)
 
 ### Storage and Persistence
 
-- **Volume Type**: EBS gp3 via CSI driver
+- **Volume Type**: Azure Disk Premium SSD via CSI driver
 - **Size**: 2Gi per sandbox
 - **Mount Path**: `/home/node/.openclaw`
 - **Access Mode**: ReadWriteOnce
 - **Lifecycle**: Persists across pod restarts, deleted with sandbox
-- **Config Behavior**: 
-  - Created on first run if not exists
-  - Preserved on pod restart
-  - Manual edits persist
 
 ### LiteLLM Integration
 
@@ -658,42 +649,25 @@ OpenClaw sandboxes connect to LiteLLM proxy with:
 - Uses cluster-internal service DNS (no external network required)
 - API key generated via LiteLLM master key
 - OpenAI-compatible API format
-- LiteLLM handles AWS Bedrock authentication via Pod Identity
-
-### Resource Allocation
-
-**Per Sandbox Pod**:
-- CPU: No limits (burstable)
-- Memory: No limits (burstable)
-- Storage: 2Gi EBS volume
-- Network: Cluster network access
-
-**Bare-metal Node** (when provisioned):
-- Instance Types: m5.metal, m5d.metal, c5.metal, c5d.metal
-- CPU: 96 cores (m5.metal), 48 cores (c5.metal)
-- Memory: 384GB (m5.metal), 192GB (c5.metal)
-- NVMe: RAID0 configured for containerd devicemapper
-- Root Volume: 200Gi gp3
-
-### Channel Integrations
-
-**Slack**:
-- Connection: Socket Mode (WebSocket)
-- Authentication: Bot Token + App Token
-- Permissions: chat:write, im:write, im:history, channels:history
-- DM Policy: Open (accepts DMs from all users)
-
-**Feishu**:
-- Connection: Webhook
-- Authentication: App ID + App Secret
-- Permissions: Configured in Feishu app settings
-- DM Policy: Open (accepts messages from all users)
+- LiteLLM handles Azure OpenAI authentication via Workload Identity
 
 ### Networking
 
-- **Pod Network**: Uses VPC CNI (10.1.0.0/16)
+- **Pod Network**: Azure CNI Overlay (10.244.0.0/16)
+- **Service CIDR**: 172.16.0.0/16
+- **VNet CIDR**: 10.1.0.0/16
 - **Service Discovery**: Kubernetes DNS
 - **LiteLLM Access**: ClusterIP service in `litellm` namespace
 - **External Access**: None (sandboxes are internal only)
-- **Channel Access**: Outbound HTTPS to Slack/Feishu APIs
+- **Channel Access**: Outbound HTTPS to Slack/Feishu APIs via NAT Gateway
+- **Network Policy**: Calico
 
+## References
+
+- [OpenClaw Documentation](https://github.com/openclaw/openclaw)
+- [LiteLLM Documentation](https://docs.litellm.ai/)
+- [Kata Containers](https://katacontainers.io/)
+- [AKS Documentation](https://learn.microsoft.com/en-us/azure/aks/)
+- [Azure OpenAI](https://learn.microsoft.com/en-us/azure/ai-services/openai/)
+- [AKS Kata Containers](https://learn.microsoft.com/en-us/azure/aks/use-kata-containers)
+- [Workload Identity](https://learn.microsoft.com/en-us/azure/aks/workload-identity-overview)

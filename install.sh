@@ -3,14 +3,14 @@
 set -e
 
 # Default values
-REGION="${AWS_REGION:-us-west-2}"
-CLUSTER_NAME="${CLUSTER_NAME:-openclaw-kata-eks}"
+LOCATION="${AZURE_LOCATION:-eastus2}"
+CLUSTER_NAME="${CLUSTER_NAME:-openclaw-kata-aks}"
 
 # Parse command line arguments
 while [[ $# -gt 0 ]]; do
   case $1 in
-    --region)
-      REGION="$2"
+    --location)
+      LOCATION="$2"
       shift 2
       ;;
     --cluster-name)
@@ -21,13 +21,13 @@ while [[ $# -gt 0 ]]; do
       echo "Usage: $0 [OPTIONS]"
       echo ""
       echo "Options:"
-      echo "  --region REGION          AWS region (default: us-west-2)"
-      echo "  --cluster-name NAME      EKS cluster name (default: openclaw-kata-eks)"
+      echo "  --location LOCATION      Azure region (default: eastus2)"
+      echo "  --cluster-name NAME      AKS cluster name (default: openclaw-kata-aks)"
       echo "  --help                   Show this help message"
       echo ""
       echo "Examples:"
-      echo "  $0 --region ap-southeast-1"
-      echo "  $0 --region us-east-1 --cluster-name my-openclaw"
+      echo "  $0 --location westus2"
+      echo "  $0 --location eastus --cluster-name my-openclaw"
       exit 0
       ;;
     *)
@@ -38,18 +38,28 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
-echo "Installing OpenClaw on EKS with Kata Containers and LiteLLM..."
-echo "Region: $REGION"
+echo "Installing OpenClaw on AKS with Kata Containers and LiteLLM..."
+echo "Location: $LOCATION"
 echo "Cluster Name: $CLUSTER_NAME"
 echo ""
 
 # Check prerequisites
-command -v aws >/dev/null 2>&1 || { echo "aws cli is required but not installed. Aborting." >&2; exit 1; }
+command -v az >/dev/null 2>&1 || { echo "Azure CLI (az) is required but not installed. Aborting." >&2; exit 1; }
 command -v kubectl >/dev/null 2>&1 || { echo "kubectl is required but not installed. Aborting." >&2; exit 1; }
 command -v terraform >/dev/null 2>&1 || { echo "terraform is required but not installed. Aborting." >&2; exit 1; }
 command -v helm >/dev/null 2>&1 || { echo "helm is required but not installed. Aborting." >&2; exit 1; }
 
 echo "✓ Prerequisites check passed"
+
+# Check Azure login
+echo "Checking Azure login status..."
+az account show >/dev/null 2>&1 || {
+  echo "Not logged in to Azure. Running 'az login'..."
+  az login
+}
+
+SUBSCRIPTION_ID=$(az account show --query id -o tsv)
+echo "✓ Logged in to Azure (Subscription: $SUBSCRIPTION_ID)"
 
 # Initialize Terraform
 echo "Initializing Terraform..."
@@ -57,7 +67,7 @@ terraform init
 
 # Plan
 echo "Planning infrastructure..."
-terraform plan -var="region=$REGION" -var="name=$CLUSTER_NAME"
+terraform plan -var="location=$LOCATION" -var="name=$CLUSTER_NAME"
 
 # Apply
 echo "Deploying infrastructure..."
@@ -67,11 +77,12 @@ if [ "$confirm" != "yes" ]; then
     exit 0
 fi
 
-terraform apply -auto-approve -var="region=$REGION" -var="name=$CLUSTER_NAME"
+terraform apply -auto-approve -var="location=$LOCATION" -var="name=$CLUSTER_NAME"
 
 # Configure kubectl
 echo "Configuring kubectl..."
-aws eks --region $REGION update-kubeconfig --name $CLUSTER_NAME
+RESOURCE_GROUP="${CLUSTER_NAME}-rg"
+az aks get-credentials --resource-group "$RESOURCE_GROUP" --name "$CLUSTER_NAME" --overwrite-existing
 
 # Wait for cluster to be ready
 echo "Waiting for cluster to be ready..."
@@ -83,7 +94,8 @@ echo "Deployment completed successfully!"
 echo "=========================================="
 echo ""
 echo "Cluster: $CLUSTER_NAME"
-echo "Region: $REGION"
+echo "Location: $LOCATION"
+echo "Resource Group: $RESOURCE_GROUP"
 echo ""
 echo "Next steps:"
 echo "1. Generate LiteLLM API key:"

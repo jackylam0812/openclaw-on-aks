@@ -1,3 +1,7 @@
+#---------------------------------------------------------------
+# LiteLLM Proxy - Azure OpenAI Backend
+#---------------------------------------------------------------
+
 resource "kubernetes_namespace_v1" "litellm" {
   metadata {
     name = "litellm"
@@ -8,38 +12,13 @@ resource "kubernetes_service_account_v1" "litellm" {
   metadata {
     name      = "litellm"
     namespace = kubernetes_namespace_v1.litellm.metadata[0].name
+    annotations = {
+      "azure.workload.identity/client-id" = azurerm_user_assigned_identity.litellm.client_id
+    }
+    labels = {
+      "azure.workload.identity/use" = "true"
+    }
   }
-}
-
-# Create IAM role for Pod Identity
-resource "aws_iam_role" "litellm_pod_identity" {
-  name = "${module.eks.cluster_name}-litellm-pod-identity"
-
-  assume_role_policy = jsonencode({
-    Version = "2012-10-17"
-    Statement = [{
-      Effect = "Allow"
-      Principal = {
-        Service = "pods.eks.amazonaws.com"
-      }
-      Action = [
-        "sts:AssumeRole",
-        "sts:TagSession"
-      ]
-    }]
-  })
-}
-
-resource "aws_iam_role_policy_attachment" "litellm_bedrock" {
-  role       = aws_iam_role.litellm_pod_identity.name
-  policy_arn = aws_iam_policy.openclaw_bedrock.arn
-}
-
-resource "aws_eks_pod_identity_association" "litellm" {
-  cluster_name    = module.eks.cluster_name
-  namespace       = kubernetes_namespace_v1.litellm.metadata[0].name
-  service_account = kubernetes_service_account_v1.litellm.metadata[0].name
-  role_arn        = aws_iam_role.litellm_pod_identity.arn
 }
 
 resource "helm_release" "litellm" {
@@ -79,7 +58,7 @@ resource "helm_release" "litellm" {
     value = random_password.litellm_db_admin.result
   }
 
-  # Bedrock model - Claude Opus 4.6 (cross-region inference profile)
+  # Azure OpenAI model - GPT-5.4 (mapped as claude-opus-4-6 for OpenClaw compatibility)
   set {
     name  = "proxy_config.model_list[0].model_name"
     value = "claude-opus-4-6"
@@ -87,12 +66,17 @@ resource "helm_release" "litellm" {
 
   set {
     name  = "proxy_config.model_list[0].litellm_params.model"
-    value = "bedrock/us.anthropic.claude-opus-4-6-v1"
+    value = "azure/gpt-5.4"
   }
 
   set {
-    name  = "proxy_config.model_list[0].litellm_params.aws_region_name"
-    value = "us-east-1"
+    name  = "proxy_config.model_list[0].litellm_params.api_base"
+    value = var.azure_openai_endpoint
+  }
+
+  set {
+    name  = "proxy_config.model_list[0].litellm_params.api_version"
+    value = "2025-04-01-preview"
   }
 
   # Enable Prometheus metrics
@@ -101,13 +85,17 @@ resource "helm_release" "litellm" {
     value = "prometheus"
   }
 
-  # Monitoring - disable built-in ServiceMonitor, we'll create our own
+  # Monitoring - disable built-in ServiceMonitor, we create our own
   set {
     name  = "serviceMonitor.enabled"
     value = "false"
   }
 
-  depends_on = [module.eks, helm_release.kube_prometheus_stack]
+  depends_on = [
+    azurerm_kubernetes_cluster.main,
+    helm_release.kube_prometheus_stack,
+    azurerm_federated_identity_credential.litellm,
+  ]
 }
 
 # Custom ServiceMonitor with correct path
@@ -130,10 +118,10 @@ resource "kubectl_manifest" "litellm_servicemonitor" {
         }
       }
       endpoints = [{
-        port           = "http"
-        path           = "/metrics"
-        interval       = "30s"
-        scrapeTimeout  = "10s"
+        port          = "http"
+        path          = "/metrics"
+        interval      = "30s"
+        scrapeTimeout = "10s"
       }]
     }
   })
@@ -141,7 +129,6 @@ resource "kubectl_manifest" "litellm_servicemonitor" {
   depends_on = [
     helm_release.litellm,
     helm_release.kube_prometheus_stack,
-    module.eks.cluster_addons
   ]
 }
 
@@ -154,7 +141,6 @@ resource "random_password" "litellm_db_admin" {
   length  = 32
   special = true
 }
-
 
 output "litellm_db_password" {
   value     = random_password.litellm_db.result
