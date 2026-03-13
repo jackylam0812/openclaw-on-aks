@@ -244,13 +244,13 @@ deploy_portals() {
 
   # Build and push images
   echo "Building portal images..."
-  docker build -f portals/api/Dockerfile -t "${ACR_NAME}.azurecr.io/openclaw-portal-api:latest" portals/api/
+  docker buildx build --platform linux/amd64 -f portals/api/Dockerfile -t "${ACR_NAME}.azurecr.io/openclaw-portal-api:latest" portals/api/
   docker push "${ACR_NAME}.azurecr.io/openclaw-portal-api:latest"
 
-  docker build -f portals/admin/Dockerfile -t "${ACR_NAME}.azurecr.io/openclaw-admin-portal:latest" portals/admin/
+  docker buildx build --platform linux/amd64 -f portals/admin/Dockerfile -t "${ACR_NAME}.azurecr.io/openclaw-admin-portal:latest" portals/admin/
   docker push "${ACR_NAME}.azurecr.io/openclaw-admin-portal:latest"
 
-  docker build -f portals/customer/Dockerfile -t "${ACR_NAME}.azurecr.io/openclaw-customer-portal:latest" portals/customer/
+  docker buildx build --platform linux/amd64 -f portals/customer/Dockerfile -t "${ACR_NAME}.azurecr.io/openclaw-customer-portal:latest" portals/customer/
   docker push "${ACR_NAME}.azurecr.io/openclaw-customer-portal:latest"
 
   # Apply K8s manifests (substitute image placeholders)
