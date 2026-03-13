@@ -11,7 +11,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     if (!getToken()) {
-      router.push('/admin/login');
+      router.push('/login');
     }
   }, [router]);
 

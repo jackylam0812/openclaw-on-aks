@@ -19,7 +19,7 @@ export default function LoginPage() {
       const data = await login(email, password);
       setToken(data.token);
       localStorage.setItem('user', JSON.stringify(data.user));
-      router.push('/admin/dashboard');
+      router.push('/dashboard');
     } catch (err: any) {
       setError(err.message || 'Login failed');
     } finally {

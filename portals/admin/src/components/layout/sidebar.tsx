@@ -6,11 +6,11 @@ import { LayoutDashboard, Server, Cpu, Users, BarChart2, LogOut } from 'lucide-r
 import { clearToken } from '@/lib/api';
 
 const navItems = [
-  { href: '/admin/dashboard', label: 'Dashboard', icon: LayoutDashboard },
-  { href: '/admin/cluster', label: 'Cluster', icon: Server },
-  { href: '/admin/models', label: 'Models', icon: Cpu },
-  { href: '/admin/users', label: 'Users', icon: Users },
-  { href: '/admin/monitoring', label: 'Monitoring', icon: BarChart2 },
+  { href: '/dashboard', label: 'Dashboard', icon: LayoutDashboard },
+  { href: '/cluster', label: 'Cluster', icon: Server },
+  { href: '/models', label: 'Models', icon: Cpu },
+  { href: '/users', label: 'Users', icon: Users },
+  { href: '/monitoring', label: 'Monitoring', icon: BarChart2 },
 ];
 
 export default function Sidebar() {
@@ -19,7 +19,7 @@ export default function Sidebar() {
 
   const handleLogout = () => {
     clearToken();
-    router.push('/admin/login');
+    router.push('/login');
   };
 
   const userEmail = typeof window !== 'undefined'

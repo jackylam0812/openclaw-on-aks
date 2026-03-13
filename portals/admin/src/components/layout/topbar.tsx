@@ -4,11 +4,11 @@ import { usePathname } from 'next/navigation';
 import { Bell } from 'lucide-react';
 
 const pageTitles: Record<string, string> = {
-  '/admin/dashboard': 'Dashboard',
-  '/admin/cluster': 'Cluster',
-  '/admin/models': 'Models',
-  '/admin/users': 'Users',
-  '/admin/monitoring': 'Monitoring',
+  '/dashboard': 'Dashboard',
+  '/cluster': 'Cluster',
+  '/models': 'Models',
+  '/users': 'Users',
+  '/monitoring': 'Monitoring',
 };
 
 export default function Topbar() {

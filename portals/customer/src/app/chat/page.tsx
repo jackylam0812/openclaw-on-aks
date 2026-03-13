@@ -32,7 +32,7 @@ export default function ChatPage() {
 
   useEffect(() => {
     if (!getToken()) {
-      router.push('/app/login');
+      router.push('/login');
       return;
     }
     loadConversations();
@@ -100,7 +100,7 @@ export default function ChatPage() {
 
   const handleLogout = () => {
     clearToken();
-    router.push('/app/login');
+    router.push('/login');
   };
 
   const userName = typeof window !== 'undefined'

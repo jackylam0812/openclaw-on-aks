@@ -56,7 +56,7 @@ export default function IntegrationsPage() {
 
   useEffect(() => {
     if (!getToken()) {
-      router.push('/app/login');
+      router.push('/login');
       return;
     }
     loadIntegrations();
@@ -95,7 +95,7 @@ export default function IntegrationsPage() {
     <div className="min-h-screen p-6">
       <div className="max-w-4xl mx-auto">
         <button
-          onClick={() => router.push('/app/chat')}
+          onClick={() => router.push('/chat')}
           className="flex items-center gap-2 text-sm text-gray-500 hover:text-gray-300 mb-6 transition-colors"
         >
           <ArrowLeft size={16} />
