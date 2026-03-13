@@ -31,12 +31,5 @@ resource "azurerm_role_assignment" "aks_kv_secrets_user" {
   principal_id         = azurerm_kubernetes_cluster.main.key_vault_secrets_provider[0].secret_identity[0].object_id
 }
 
-# Store Azure OpenAI API Key in Key Vault (if provided)
-resource "azurerm_key_vault_secret" "azure_openai_api_key" {
-  count        = var.azure_openai_api_key != "" ? 1 : 0
-  name         = "azure-openai-api-key"
-  value        = var.azure_openai_api_key
-  key_vault_id = azurerm_key_vault.main.id
-
-  depends_on = [azurerm_role_assignment.kv_admin]
-}
+# Note: Azure OpenAI credentials are managed via Workload Identity (see azure-openai.tf)
+# No static API key needed in Key Vault
