@@ -49,7 +49,12 @@ variable "kata_node_max_count" {
 variable "azure_openai_endpoint" {
   description = "Azure OpenAI endpoint URL (e.g. https://YOUR_NAME.openai.azure.com/)"
   type        = string
-  default     = "https://YOUR_AZURE_OPENAI_ENDPOINT.openai.azure.com/"
+  default     = ""
+
+  validation {
+    condition     = var.azure_openai_endpoint != "" && var.azure_openai_endpoint != "https://YOUR_AZURE_OPENAI_ENDPOINT.openai.azure.com/"
+    error_message = "azure_openai_endpoint must be set to a real Azure OpenAI endpoint URL. Pass -var='azure_openai_endpoint=https://<your-resource>.openai.azure.com/'"
+  }
 }
 
 variable "azure_openai_api_key" {

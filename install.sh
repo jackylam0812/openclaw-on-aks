@@ -6,6 +6,7 @@ set -e
 LOCATION="${AZURE_LOCATION:-southeastasia}"
 CLUSTER_NAME="${CLUSTER_NAME:-openclaw-kata-aks}"
 MICROSOFT_INTERNAL=false
+AZURE_OPENAI_ENDPOINT="${AZURE_OPENAI_ENDPOINT:-}"
 
 # Parse command line arguments
 while [[ $# -gt 0 ]]; do
@@ -22,18 +23,24 @@ while [[ $# -gt 0 ]]; do
       MICROSOFT_INTERNAL=true
       shift
       ;;
+    --azure-openai-endpoint)
+      AZURE_OPENAI_ENDPOINT="$2"
+      shift 2
+      ;;
     --help)
       echo "Usage: $0 [OPTIONS]"
       echo ""
       echo "Options:"
       echo "  --location LOCATION      Azure region (default: southeastasia)"
       echo "  --cluster-name NAME      AKS cluster name (default: openclaw-kata-aks)"
-      echo "  --microsoft-internal     Mark as Microsoft internal subscription (adds SecurityControl=Ignore tag)"
-      echo "  --help                   Show this help message"
+      echo "  --azure-openai-endpoint URL  Azure OpenAI endpoint URL"
+      echo "  --microsoft-internal         Mark as Microsoft internal subscription (adds SecurityControl=Ignore tag)"
+      echo "  --help                       Show this help message"
       echo ""
       echo "Examples:"
       echo "  $0 --location westus2"
       echo "  $0 --location eastus --cluster-name my-openclaw"
+      echo "  $0 --azure-openai-endpoint https://myresource.openai.azure.com/"
       echo "  $0 --microsoft-internal"
       exit 0
       ;;
@@ -69,6 +76,18 @@ SUBSCRIPTION_ID=$(az account show --query id -o tsv)
 echo "✓ Logged in to Azure (Subscription: $SUBSCRIPTION_ID)"
 
 # Ask if this is a Microsoft internal subscription (unless already set via flag)
+# Ask for Azure OpenAI endpoint if not provided
+if [ -z "$AZURE_OPENAI_ENDPOINT" ]; then
+  echo ""
+  read -p "Enter your Azure OpenAI endpoint URL (e.g. https://<resource>.openai.azure.com/): " AZURE_OPENAI_ENDPOINT
+fi
+
+if [ -z "$AZURE_OPENAI_ENDPOINT" ]; then
+  echo "Error: Azure OpenAI endpoint is required." >&2
+  exit 1
+fi
+echo "✓ Azure OpenAI endpoint: $AZURE_OPENAI_ENDPOINT"
+
 if [ "$MICROSOFT_INTERNAL" = "false" ]; then
   echo ""
   read -p "Is this a Microsoft internal subscription? (yes/no): " ms_internal_answer
@@ -87,7 +106,7 @@ echo "Initializing Terraform..."
 terraform init
 
 # Build Terraform var flags
-TF_VARS="-var=location=$LOCATION -var=name=$CLUSTER_NAME"
+TF_VARS="-var=location=$LOCATION -var=name=$CLUSTER_NAME -var=azure_openai_endpoint=$AZURE_OPENAI_ENDPOINT"
 if [ "$MICROSOFT_INTERNAL" = "true" ]; then
   TF_VARS="$TF_VARS -var=microsoft_internal=true"
 fi

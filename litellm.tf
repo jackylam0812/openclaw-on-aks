@@ -36,6 +36,13 @@ resource "helm_release" "litellm" {
     value = kubernetes_service_account_v1.litellm.metadata[0].name
   }
 
+  # Inject Workload Identity label so AKS mutating webhook injects
+  # AZURE_CLIENT_ID / AZURE_FEDERATED_TOKEN_FILE into the pod
+  set {
+    name  = "podLabels.azure\\.workload\\.identity/use"
+    value = "true"
+  }
+
   # Use latest stable image
   set {
     name  = "image.tag"
