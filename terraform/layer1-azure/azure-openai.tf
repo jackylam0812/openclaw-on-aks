@@ -64,7 +64,7 @@ resource "azurerm_cognitive_deployment" "gpt54" {
   model {
     format  = "OpenAI"
     name    = "gpt-5.4"
-    version = "2025-04-14"
+    version = "2026-03-05"
   }
 
   sku {
@@ -100,5 +100,11 @@ resource "azurerm_ai_foundry_project" "main" {
   location           = azurerm_ai_foundry.main.location
   ai_services_hub_id = azurerm_ai_foundry.main.id
 
+  identity {
+    type = "SystemAssigned"
+  }
+
   tags = local.tags
+
+  depends_on = [azurerm_ai_foundry.main]
 }
