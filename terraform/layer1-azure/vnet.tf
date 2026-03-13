@@ -58,11 +58,9 @@ resource "azurerm_nat_gateway_public_ip_association" "main" {
   public_ip_address_id = azurerm_public_ip.nat.id
 }
 
-resource "azurerm_subnet_nat_gateway_association" "system" {
-  subnet_id      = azurerm_subnet.system.id
-  nat_gateway_id = azurerm_nat_gateway.main.id
-}
-
+# NOTE: system-subnet must NOT have NAT gateway — it hosts the AKS LoadBalancer
+# (Standard LB inbound is incompatible with NAT gateway on the same subnet).
+# Only kata-subnet needs NAT gateway for outbound.
 resource "azurerm_subnet_nat_gateway_association" "kata" {
   subnet_id      = azurerm_subnet.kata.id
   nat_gateway_id = azurerm_nat_gateway.main.id
@@ -74,6 +72,18 @@ resource "azurerm_network_security_group" "aks" {
   location            = local.location
   resource_group_name = local.resource_group
   tags                = local.tags
+
+  security_rule {
+    name                       = "Allow-HTTP-HTTPS"
+    priority                   = 100
+    direction                  = "Inbound"
+    access                     = "Allow"
+    protocol                   = "Tcp"
+    source_port_range          = "*"
+    destination_port_ranges    = ["80", "443"]
+    source_address_prefix      = "*"
+    destination_address_prefix = "*"
+  }
 }
 
 resource "azurerm_subnet_network_security_group_association" "system" {
