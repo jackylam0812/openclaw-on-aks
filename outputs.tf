@@ -38,3 +38,13 @@ output "acr_login_server" {
   description = "Azure Container Registry login server"
   value       = azurerm_container_registry.main.login_server
 }
+
+output "openai_endpoint" {
+  description = "Azure OpenAI endpoint URL (used by LiteLLM)"
+  value       = azurerm_cognitive_account.openai.endpoint
+}
+
+output "openai_resource_group" {
+  description = "Azure OpenAI resource group"
+  value       = azurerm_resource_group.openai.name
+}

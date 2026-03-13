@@ -6,7 +6,7 @@ set -e
 LOCATION="${AZURE_LOCATION:-southeastasia}"
 CLUSTER_NAME="${CLUSTER_NAME:-openclaw-kata-aks}"
 MICROSOFT_INTERNAL=false
-AZURE_OPENAI_ENDPOINT="${AZURE_OPENAI_ENDPOINT:-}"
+OPENAI_LOCATION="${OPENAI_LOCATION:-}"
 
 # Parse command line arguments
 while [[ $# -gt 0 ]]; do
@@ -23,8 +23,8 @@ while [[ $# -gt 0 ]]; do
       MICROSOFT_INTERNAL=true
       shift
       ;;
-    --azure-openai-endpoint)
-      AZURE_OPENAI_ENDPOINT="$2"
+    --openai-location)
+      OPENAI_LOCATION="$2"
       shift 2
       ;;
     --help)
@@ -33,14 +33,15 @@ while [[ $# -gt 0 ]]; do
       echo "Options:"
       echo "  --location LOCATION      Azure region (default: southeastasia)"
       echo "  --cluster-name NAME      AKS cluster name (default: openclaw-kata-aks)"
-      echo "  --azure-openai-endpoint URL  Azure OpenAI endpoint URL"
+      echo "  --openai-location REGION     Azure region for OpenAI/gpt-5.4 (default: eastus2)"
+      echo "                               Supported: eastus2, swedencentral, polandcentral, southcentralus"
       echo "  --microsoft-internal         Mark as Microsoft internal subscription (adds SecurityControl=Ignore tag)"
       echo "  --help                       Show this help message"
       echo ""
       echo "Examples:"
       echo "  $0 --location westus2"
       echo "  $0 --location eastus --cluster-name my-openclaw"
-      echo "  $0 --azure-openai-endpoint https://myresource.openai.azure.com/"
+      echo "  $0 --openai-location swedencentral"
       echo "  $0 --microsoft-internal"
       exit 0
       ;;
@@ -76,17 +77,23 @@ SUBSCRIPTION_ID=$(az account show --query id -o tsv)
 echo "✓ Logged in to Azure (Subscription: $SUBSCRIPTION_ID)"
 
 # Ask if this is a Microsoft internal subscription (unless already set via flag)
-# Ask for Azure OpenAI endpoint if not provided
-if [ -z "$AZURE_OPENAI_ENDPOINT" ]; then
+# Ask for OpenAI location if not provided
+if [ -z "$OPENAI_LOCATION" ]; then
   echo ""
-  read -p "Enter your Azure OpenAI endpoint URL (e.g. https://<resource>.openai.azure.com/): " AZURE_OPENAI_ENDPOINT
+  echo "Select Azure region for OpenAI / gpt-5.4 deployment:"
+  echo "  1) eastus2        (East US 2)       [default]"
+  echo "  2) swedencentral  (Sweden Central)"
+  echo "  3) polandcentral  (Poland Central)"
+  echo "  4) southcentralus (South Central US)"
+  read -p "Enter number or region name [1]: " openai_location_choice
+  case "$openai_location_choice" in
+    2|swedencentral)  OPENAI_LOCATION="swedencentral" ;;
+    3|polandcentral)  OPENAI_LOCATION="polandcentral" ;;
+    4|southcentralus) OPENAI_LOCATION="southcentralus" ;;
+    *)                OPENAI_LOCATION="eastus2" ;;
+  esac
 fi
-
-if [ -z "$AZURE_OPENAI_ENDPOINT" ]; then
-  echo "Error: Azure OpenAI endpoint is required." >&2
-  exit 1
-fi
-echo "✓ Azure OpenAI endpoint: $AZURE_OPENAI_ENDPOINT"
+echo "✓ OpenAI location: $OPENAI_LOCATION"
 
 if [ "$MICROSOFT_INTERNAL" = "false" ]; then
   echo ""
@@ -106,7 +113,7 @@ echo "Initializing Terraform..."
 terraform init
 
 # Build Terraform var flags
-TF_VARS="-var=location=$LOCATION -var=name=$CLUSTER_NAME -var=azure_openai_endpoint=$AZURE_OPENAI_ENDPOINT"
+TF_VARS="-var=location=$LOCATION -var=name=$CLUSTER_NAME -var=openai_location=$OPENAI_LOCATION"
 if [ "$MICROSOFT_INTERNAL" = "true" ]; then
   TF_VARS="$TF_VARS -var=microsoft_internal=true"
 fi

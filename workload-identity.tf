@@ -21,12 +21,7 @@ resource "azurerm_federated_identity_credential" "openclaw_sandbox" {
   subject   = "system:serviceaccount:default:openclaw-sandbox"
 }
 
-# Grant Cognitive Services OpenAI User role for Azure OpenAI access
-resource "azurerm_role_assignment" "openclaw_openai" {
-  scope                = data.azurerm_subscription.current.id
-  role_definition_name = "Cognitive Services OpenAI User"
-  principal_id         = azurerm_user_assigned_identity.openclaw.principal_id
-}
+# Note: OpenAI role assignment for openclaw is in azure-openai.tf (scoped to the AI account)
 
 # Kubernetes ServiceAccount annotated with Workload Identity
 resource "kubernetes_service_account_v1" "openclaw_sandbox" {
@@ -62,8 +57,4 @@ resource "azurerm_federated_identity_credential" "litellm" {
   subject   = "system:serviceaccount:litellm:litellm"
 }
 
-resource "azurerm_role_assignment" "litellm_openai" {
-  scope                = data.azurerm_subscription.current.id
-  role_definition_name = "Cognitive Services OpenAI User"
-  principal_id         = azurerm_user_assigned_identity.litellm.principal_id
-}
+# Note: OpenAI role assignment for litellm is in azure-openai.tf (scoped to the AI account)

@@ -46,22 +46,15 @@ variable "kata_node_max_count" {
   default     = 10
 }
 
-variable "azure_openai_endpoint" {
-  description = "Azure OpenAI endpoint URL (e.g. https://YOUR_NAME.openai.azure.com/)"
+variable "openai_location" {
+  description = "Azure region for the OpenAI (AI Foundry) resource. Must support gpt-5.4: eastus2, swedencentral, polandcentral, southcentralus"
   type        = string
-  default     = ""
+  default     = "eastus2"
 
   validation {
-    condition     = var.azure_openai_endpoint != "" && var.azure_openai_endpoint != "https://YOUR_AZURE_OPENAI_ENDPOINT.openai.azure.com/"
-    error_message = "azure_openai_endpoint must be set to a real Azure OpenAI endpoint URL. Pass -var='azure_openai_endpoint=https://<your-resource>.openai.azure.com/'"
+    condition     = contains(["eastus2", "swedencentral", "polandcentral", "southcentralus"], var.openai_location)
+    error_message = "openai_location must be one of: eastus2, swedencentral, polandcentral, southcentralus (regions that support gpt-5.4)."
   }
-}
-
-variable "azure_openai_api_key" {
-  description = "Azure OpenAI API key (leave empty to use Key Vault)"
-  type        = string
-  default     = ""
-  sensitive   = true
 }
 
 variable "microsoft_internal" {
