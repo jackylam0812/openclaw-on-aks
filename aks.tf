@@ -72,7 +72,10 @@ resource "azurerm_kubernetes_cluster_node_pool" "kata" {
   kubernetes_cluster_id = azurerm_kubernetes_cluster.main.id
   vm_size               = var.kata_node_vm_size
   vnet_subnet_id        = azurerm_subnet.kata.id
-  workload_runtime      = "KataMshvVmIsolation"
+  # Note: workload_runtime is not used for Kata Containers node pools.
+  # Kata isolation is configured via the kata-mshv-vm-isolation RuntimeClass
+  # and node labels/taints. The azurerm provider only accepts OCIContainer
+  # or WasmWasi for this field.
   os_sku                = "AzureLinux"
 
   auto_scaling_enabled = true
