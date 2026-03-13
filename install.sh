@@ -207,11 +207,46 @@ echo "Planning infrastructure..."
 terraform plan $TF_VARS
 
 echo ""
-echo "Applying infrastructure (this takes ~10-15 minutes)..."
-terraform apply -auto-approve $TF_VARS
+# Phase 1: Azure-only resources (AKS cluster, VNet, ACR, Key Vault, AI Foundry)
+# We target only azurerm_* resources first so K8s provider doesn't try to
+# connect before the cluster exists.
+echo "Phase 1/2: Deploying Azure infrastructure (AKS, AI Foundry, ACR...)..."
+echo "This takes ~10-15 minutes..."
+terraform apply -auto-approve $TF_VARS \
+  -target=azurerm_resource_group.main \
+  -target=azurerm_resource_group.foundry \
+  -target=azurerm_virtual_network.main \
+  -target=azurerm_subnet.system \
+  -target=azurerm_subnet.kata \
+  -target=azurerm_subnet.pods \
+  -target=azurerm_nat_gateway.main \
+  -target=azurerm_public_ip.nat \
+  -target=azurerm_nat_gateway_public_ip_association.main \
+  -target=azurerm_subnet_nat_gateway_association.system \
+  -target=azurerm_subnet_nat_gateway_association.kata \
+  -target=azurerm_container_registry.main \
+  -target=azurerm_key_vault.main \
+  -target=azurerm_key_vault.foundry \
+  -target=azurerm_role_assignment.kv_admin \
+  -target=azurerm_role_assignment.foundry_kv_admin \
+  -target=azurerm_storage_account.foundry \
+  -target=azurerm_ai_services.foundry \
+  -target=azurerm_cognitive_deployment.gpt54 \
+  -target=azurerm_ai_foundry.main \
+  -target=azurerm_ai_foundry_project.main \
+  -target=azurerm_kubernetes_cluster.main \
+  -target=azurerm_role_assignment.aks_network_contributor \
+  -target=azurerm_user_assigned_identity.openclaw \
+  -target=azurerm_user_assigned_identity.litellm \
+  -target=azurerm_federated_identity_credential.openclaw_sandbox \
+  -target=azurerm_federated_identity_credential.litellm \
+  -target=azurerm_role_assignment.litellm_openai_scoped \
+  -target=azurerm_role_assignment.openclaw_openai_scoped \
+  -target=random_password.litellm_db \
+  -target=random_password.litellm_db_admin
 
 #---------------------------------------------------------------
-# Configure kubectl
+# Configure kubectl (after AKS is ready)
 #---------------------------------------------------------------
 echo ""
 echo "Configuring kubectl..."
@@ -219,6 +254,11 @@ az aks get-credentials --resource-group "$RESOURCE_GROUP" --name "$CLUSTER_NAME"
 
 echo "Waiting for cluster nodes to be ready..."
 kubectl wait --for=condition=Ready nodes --all --timeout=300s
+
+# Phase 2: K8s resources (namespaces, storage classes, LiteLLM, monitoring)
+echo ""
+echo "Phase 2/2: Deploying Kubernetes workloads (LiteLLM, monitoring...)..."
+terraform apply -auto-approve $TF_VARS
 
 #---------------------------------------------------------------
 # Deploy Portals
