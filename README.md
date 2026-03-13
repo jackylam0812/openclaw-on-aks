@@ -25,6 +25,78 @@ This blueprint deploys OpenClaw AI agents with sandbox isolation using Kata Cont
 - **Security**: Workload Identity for Azure OpenAI access (no long-lived credentials), Key Vault for secrets
 - **Observability**: Prometheus (50Gi, 15d retention) and Grafana with LiteLLM metrics
 
+## Dynamic Subagent Isolation
+
+OpenClaw supports dynamic subagent isolation where each spawned subagent runs in its own dedicated Kata VM sandbox. This provides full VM-level isolation between the main agent and any subagents it creates.
+
+### Architecture
+
+```
+┌─────────────────────────────────────────────────────────────────────┐
+│                        AKS Cluster                                  │
+│                                                                     │
+│  ┌──────────────────────────┐    ┌──────────────────────────┐      │
+│  │   Main Agent Sandbox     │    │  SubagentController      │      │
+│  │   (Kata VM)              │    │  (system node pool)      │      │
+│  │                          │    │                          │      │
+│  │  openclaw-slack-sandbox  │───▶│  Watches for spawn       │      │
+│  │  or                      │    │  requests, creates       │      │
+│  │  openclaw-feishu-sandbox │    │  Sandbox CRs via K8s API │      │
+│  └──────────────────────────┘    └─────────┬────────────────┘      │
+│                                            │                        │
+│              ┌─────────────────────────────┼──────────────┐         │
+│              │ K8s API: POST Sandbox CR    │              │         │
+│              ▼                             ▼              ▼         │
+│  ┌──────────────────┐  ┌──────────────────┐  ┌─────────────────┐  │
+│  │ Subagent Sandbox  │  │ Subagent Sandbox  │  │ Subagent Sandbox│  │
+│  │ (Kata VM)         │  │ (Kata VM)         │  │ (Kata VM)       │  │
+│  │                   │  │                   │  │                 │  │
+│  │ subagent-slack-   │  │ subagent-slack-   │  │ subagent-       │  │
+│  │ task-abc123       │  │ task-def456       │  │ feishu-task-..  │  │
+│  │                   │  │                   │  │                 │  │
+│  │ TTL: 30min        │  │ TTL: 30min        │  │ TTL: 30min      │  │
+│  │ Storage: 1Gi      │  │ Storage: 1Gi      │  │ Storage: 1Gi    │  │
+│  └──────────────────┘  └──────────────────┘  └─────────────────┘  │
+│              ▲                                                      │
+│              │                                                      │
+│  ┌──────────┴───────────────────────────────────────────────────┐  │
+│  │  TTL Controller CronJob (every 5min)                         │  │
+│  │  Deletes sandboxes where shutdownTime is past or TTL expired │  │
+│  └──────────────────────────────────────────────────────────────┘  │
+│                                                                     │
+└─────────────────────────────────────────────────────────────────────┘
+```
+
+### Flow
+
+1. **Main agent receives task**: The parent sandbox (e.g., `openclaw-slack-sandbox`) determines a task requires an isolated subagent
+2. **Spawn subagent Sandbox CR**: OpenClaw's `sessions_spawn` with `runtime="sandbox"` triggers the SubagentController to POST a new Sandbox CR to the K8s API
+3. **New Kata VM starts**: The agent-sandbox-controller provisions a new pod with `kata-mshv-vm-isolation` runtime class, creating a dedicated Kata VM
+4. **Task runs in isolation**: The subagent executes its task inside the isolated VM with its own 1Gi storage volume, CPU/memory limits, and network namespace
+5. **Auto-cleanup**: When `shutdownTime` is reached (default: 30 minutes after creation), the TTL controller CronJob deletes the Sandbox CR, and the agent-sandbox-controller cleans up the associated pod and PVC
+
+### RBAC Requirements
+
+The `openclaw-sandbox` ServiceAccount requires permissions to manage Sandbox CRs:
+
+- **Role** (`openclaw-sandbox-manager`): create, delete, get, list, watch on `sandboxes.agents.x-k8s.io`
+- **ClusterRole** (`sandbox-ttl-controller`): get, list, watch, delete on `sandboxes.agents.x-k8s.io` (for cross-namespace cleanup)
+
+These are provisioned via `agent-sandbox/subagent-rbac.yaml`.
+
+### Subagent Configuration
+
+| Parameter | Default | Description |
+|-----------|---------|-------------|
+| TTL | 1800s (30min) | Time-to-live for subagent sandboxes |
+| Max concurrent | 5 | Maximum subagents per parent sandbox |
+| Storage | 1Gi | Azure Disk Premium per subagent |
+| CPU | 100m-500m | CPU request/limit |
+| Memory | 128Mi-512Mi | Memory request/limit |
+| Runtime | kata-mshv-vm-isolation | Kata Containers runtime class |
+
+Configuration is stored in the `subagent-config` ConfigMap. The sandbox template is in `subagent-sandbox-template` ConfigMap.
+
 ## Deploying the Solution
 
 ### Prerequisites

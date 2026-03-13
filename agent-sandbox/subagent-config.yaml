@@ -1,0 +1,64 @@
+---
+# Configuration for dynamic subagent sandbox creation
+# This ConfigMap documents the parameters OpenClaw uses when spawning subagent Sandboxes
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: subagent-config
+  namespace: default
+  labels:
+    app.kubernetes.io/name: openclaw-subagent
+    app.kubernetes.io/component: subagent
+data:
+  # Default TTL for subagent sandboxes (seconds)
+  ttl-seconds: "1800"
+
+  # Maximum concurrent subagent sandboxes per parent
+  max-subagents-per-parent: "5"
+
+  # Subagent resource limits
+  storage-size: "1Gi"
+  cpu-request: "100m"
+  cpu-limit: "500m"
+  memory-request: "128Mi"
+  memory-limit: "512Mi"
+
+  # Runtime configuration
+  runtime-class: "kata-mshv-vm-isolation"
+  storage-class: "azure-disk-premium"
+
+  # Subagent sandbox naming convention: subagent-<parent>-<task-id>
+  name-prefix: "subagent"
+
+  # OpenClaw gateway spawn configuration
+  # When OpenClaw calls sessions_spawn with runtime="sandbox":
+  #   1. Controller reads this config and the sandbox template
+  #   2. Generates a unique sandbox name: subagent-<parent>-<task-id>
+  #   3. Sets shutdownTime to now + ttl-seconds
+  #   4. POSTs the Sandbox CR to the K8s API
+  #   5. Waits for sandbox pod to be Running
+  #   6. Returns the sandbox connection info to OpenClaw
+  #
+  # Auto-cleanup:
+  #   - TTL controller CronJob checks every 5 minutes
+  #   - Deletes sandboxes past their shutdownTime or TTL annotation
+  #   - Sandbox controller cleans up associated pods and PVCs
+  spawn-config: |
+    {
+      "runtime": "sandbox",
+      "defaults": {
+        "ttlSeconds": 1800,
+        "maxConcurrent": 5,
+        "resources": {
+          "storage": "1Gi",
+          "cpu": "500m",
+          "memory": "512Mi"
+        },
+        "isolation": {
+          "runtimeClass": "kata-mshv-vm-isolation",
+          "nodeSelector": {
+            "katacontainers.io/kata-runtime": "true"
+          }
+        }
+      }
+    }

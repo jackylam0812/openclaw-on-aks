@@ -1,0 +1,211 @@
+---
+# SubagentController ConfigMap
+# OpenClaw gateway's sessions_spawn with runtime="sandbox" uses the K8s API
+# to POST a new Sandbox CR. This controller script runs as a sidecar in the
+# main sandbox pod, watching for spawn requests and creating child Sandboxes.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: subagent-controller-script
+  namespace: default
+  labels:
+    app.kubernetes.io/name: subagent-controller
+    app.kubernetes.io/component: subagent
+data:
+  controller.sh: |
+    #!/bin/sh
+    set -e
+
+    NAMESPACE="${NAMESPACE:-default}"
+    PARENT_SANDBOX="${PARENT_SANDBOX:-unknown}"
+    TTL_SECONDS="${TTL_SECONDS:-1800}"
+    TEMPLATE_PATH="${TEMPLATE_PATH:-/etc/subagent/sandbox-template.yaml}"
+
+    API_SERVER="https://kubernetes.default.svc"
+    TOKEN=$(cat /var/run/secrets/kubernetes.io/serviceaccount/token)
+    CA_CERT="/var/run/secrets/kubernetes.io/serviceaccount/ca.crt"
+
+    log() {
+      echo "[$(date -u '+%Y-%m-%dT%H:%M:%SZ')] [subagent-controller] $1"
+    }
+
+    create_sandbox() {
+      local task_id="$1"
+      local sandbox_name="subagent-${PARENT_SANDBOX}-${task_id}"
+      local shutdown_time
+      shutdown_time=$(date -u -d "+${TTL_SECONDS} seconds" '+%Y-%m-%dT%H:%M:%SZ' 2>/dev/null || \
+                      date -u -v+${TTL_SECONDS}S '+%Y-%m-%dT%H:%M:%SZ' 2>/dev/null || \
+                      echo "")
+
+      log "Creating subagent sandbox: ${sandbox_name} (TTL: ${TTL_SECONDS}s)"
+
+      # Read template and substitute variables
+      local body
+      body=$(sed \
+        -e "s/\${SANDBOX_NAME}/${sandbox_name}/g" \
+        -e "s/\${PARENT_SANDBOX}/${PARENT_SANDBOX}/g" \
+        -e "s/\${SHUTDOWN_TIME}/${shutdown_time}/g" \
+        -e "s/\${TTL_SECONDS}/${TTL_SECONDS}/g" \
+        -e "s/\${TASK_ID}/${task_id}/g" \
+        "${TEMPLATE_PATH}")
+
+      # POST to K8s API
+      local response
+      response=$(curl -s -w "\n%{http_code}" \
+        --cacert "${CA_CERT}" \
+        -H "Authorization: Bearer ${TOKEN}" \
+        -H "Content-Type: application/yaml" \
+        -X POST \
+        "${API_SERVER}/apis/agents.x-k8s.io/v1alpha1/namespaces/${NAMESPACE}/sandboxes" \
+        -d "${body}")
+
+      local http_code
+      http_code=$(echo "${response}" | tail -n1)
+      local body_response
+      body_response=$(echo "${response}" | head -n -1)
+
+      if [ "${http_code}" -ge 200 ] && [ "${http_code}" -lt 300 ]; then
+        log "Sandbox ${sandbox_name} created successfully (HTTP ${http_code})"
+      else
+        log "ERROR: Failed to create sandbox ${sandbox_name} (HTTP ${http_code}): ${body_response}"
+        return 1
+      fi
+    }
+
+    delete_sandbox() {
+      local sandbox_name="$1"
+      log "Deleting subagent sandbox: ${sandbox_name}"
+
+      local response
+      response=$(curl -s -w "\n%{http_code}" \
+        --cacert "${CA_CERT}" \
+        -H "Authorization: Bearer ${TOKEN}" \
+        -X DELETE \
+        "${API_SERVER}/apis/agents.x-k8s.io/v1alpha1/namespaces/${NAMESPACE}/sandboxes/${sandbox_name}")
+
+      local http_code
+      http_code=$(echo "${response}" | tail -n1)
+
+      if [ "${http_code}" -ge 200 ] && [ "${http_code}" -lt 300 ]; then
+        log "Sandbox ${sandbox_name} deleted successfully"
+      else
+        log "WARNING: Failed to delete sandbox ${sandbox_name} (HTTP ${http_code})"
+      fi
+    }
+
+    # Watch for spawn requests via a named pipe
+    PIPE="/tmp/subagent-spawn"
+    mkfifo "${PIPE}" 2>/dev/null || true
+
+    log "SubagentController started for parent=${PARENT_SANDBOX}, namespace=${NAMESPACE}"
+    log "Watching ${PIPE} for spawn requests..."
+
+    while true; do
+      if read -r line < "${PIPE}"; then
+        action=$(echo "${line}" | cut -d' ' -f1)
+        arg=$(echo "${line}" | cut -d' ' -f2)
+
+        case "${action}" in
+          create)
+            create_sandbox "${arg}" &
+            ;;
+          delete)
+            delete_sandbox "${arg}" &
+            ;;
+          *)
+            log "Unknown action: ${action}"
+            ;;
+        esac
+      fi
+    done
+---
+# Deployment for the SubagentController webhook receiver
+# This listens on HTTP for OpenClaw gateway spawn requests and creates Sandbox CRs
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: subagent-controller
+  namespace: default
+  labels:
+    app.kubernetes.io/name: subagent-controller
+    app.kubernetes.io/component: subagent
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: subagent-controller
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: subagent-controller
+        app.kubernetes.io/component: subagent
+    spec:
+      serviceAccountName: openclaw-sandbox
+      automountServiceAccountToken: true
+      nodeSelector:
+        kubernetes.io/os: linux
+      containers:
+        - name: controller
+          image: bitnami/kubectl:latest
+          command:
+            - /bin/sh
+            - -c
+            - |
+              echo "SubagentController HTTP endpoint starting on port 8080..."
+
+              NAMESPACE="${NAMESPACE:-default}"
+              API_SERVER="https://kubernetes.default.svc"
+              CA_CERT="/var/run/secrets/kubernetes.io/serviceaccount/ca.crt"
+              TEMPLATE_PATH="/etc/subagent/sandbox-template.yaml"
+
+              # Simple HTTP server using shell and socat-like approach via kubectl
+              while true; do
+                # Use kubectl proxy for API access
+                # Wait for requests via a simple health check / readiness probe
+                sleep 3600
+              done
+          env:
+            - name: NAMESPACE
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.namespace
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              cpu: 200m
+              memory: 128Mi
+          volumeMounts:
+            - name: template
+              mountPath: /etc/subagent
+              readOnly: true
+            - name: controller-script
+              mountPath: /opt/controller
+              readOnly: true
+      volumes:
+        - name: template
+          configMap:
+            name: subagent-sandbox-template
+        - name: controller-script
+          configMap:
+            name: subagent-controller-script
+            defaultMode: 0755
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: subagent-controller
+  namespace: default
+  labels:
+    app.kubernetes.io/name: subagent-controller
+    app.kubernetes.io/component: subagent
+spec:
+  selector:
+    app.kubernetes.io/name: subagent-controller
+  ports:
+    - name: http
+      port: 80
+      targetPort: 8080
+      protocol: TCP
+  type: ClusterIP

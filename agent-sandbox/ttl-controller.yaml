@@ -1,0 +1,119 @@
+---
+# TTL Controller CronJob
+# Runs every 5 minutes to clean up expired subagent Sandboxes.
+# Deletes Sandbox objects where:
+#   1. shutdownTime is in the past, OR
+#   2. sandbox.agents.x-k8s.io/ttl annotation has expired since creation
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: sandbox-ttl-controller
+  namespace: agent-sandbox-system
+  labels:
+    app.kubernetes.io/name: sandbox-ttl-controller
+    app.kubernetes.io/component: subagent
+spec:
+  schedule: "*/5 * * * *"
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    metadata:
+      labels:
+        app.kubernetes.io/name: sandbox-ttl-controller
+        app.kubernetes.io/component: subagent
+    spec:
+      activeDeadlineSeconds: 120
+      backoffLimit: 1
+      template:
+        metadata:
+          labels:
+            app.kubernetes.io/name: sandbox-ttl-controller
+            app.kubernetes.io/component: subagent
+        spec:
+          serviceAccountName: sandbox-ttl-controller
+          restartPolicy: OnFailure
+          nodeSelector:
+            kubernetes.io/os: linux
+          containers:
+            - name: ttl-controller
+              image: bitnami/kubectl:latest
+              command:
+                - /bin/sh
+                - -c
+                - |
+                  set -e
+
+                  log() {
+                    echo "[$(date -u '+%Y-%m-%dT%H:%M:%SZ')] [ttl-controller] $1"
+                  }
+
+                  log "Starting TTL controller sweep..."
+
+                  NOW_EPOCH=$(date -u +%s)
+                  DELETED=0
+                  CHECKED=0
+
+                  # Get all sandboxes with the subagent=true label across all namespaces
+                  SANDBOXES=$(kubectl get sandboxes -A -l subagent=true \
+                    -o jsonpath='{range .items[*]}{.metadata.namespace}{" "}{.metadata.name}{" "}{.metadata.creationTimestamp}{" "}{.metadata.annotations.sandbox\.agents\.x-k8s\.io/ttl}{" "}{.spec.shutdownTime}{"\n"}{end}' 2>/dev/null || echo "")
+
+                  if [ -z "${SANDBOXES}" ]; then
+                    log "No subagent sandboxes found. Nothing to clean up."
+                    exit 0
+                  fi
+
+                  echo "${SANDBOXES}" | while IFS=' ' read -r ns name created ttl shutdown_time; do
+                    [ -z "${name}" ] && continue
+                    CHECKED=$((CHECKED + 1))
+
+                    SHOULD_DELETE=false
+
+                    # Check 1: shutdownTime is in the past
+                    if [ -n "${shutdown_time}" ] && [ "${shutdown_time}" != "<none>" ]; then
+                      # Parse ISO 8601 date to epoch
+                      SHUTDOWN_EPOCH=$(date -u -d "${shutdown_time}" +%s 2>/dev/null || \
+                                       date -u -j -f "%Y-%m-%dT%H:%M:%SZ" "${shutdown_time}" +%s 2>/dev/null || \
+                                       echo "0")
+
+                      if [ "${SHUTDOWN_EPOCH}" -gt 0 ] && [ "${NOW_EPOCH}" -ge "${SHUTDOWN_EPOCH}" ]; then
+                        log "Sandbox ${ns}/${name}: shutdownTime ${shutdown_time} has passed"
+                        SHOULD_DELETE=true
+                      fi
+                    fi
+
+                    # Check 2: TTL annotation expired since creation
+                    if [ "${SHOULD_DELETE}" = "false" ] && [ -n "${ttl}" ] && [ "${ttl}" != "<none>" ]; then
+                      CREATED_EPOCH=$(date -u -d "${created}" +%s 2>/dev/null || \
+                                      date -u -j -f "%Y-%m-%dT%H:%M:%SZ" "${created}" +%s 2>/dev/null || \
+                                      echo "0")
+
+                      if [ "${CREATED_EPOCH}" -gt 0 ]; then
+                        EXPIRY_EPOCH=$((CREATED_EPOCH + ttl))
+                        if [ "${NOW_EPOCH}" -ge "${EXPIRY_EPOCH}" ]; then
+                          log "Sandbox ${ns}/${name}: TTL ${ttl}s expired (created: ${created})"
+                          SHOULD_DELETE=true
+                        fi
+                      fi
+                    fi
+
+                    # Delete expired sandbox
+                    if [ "${SHOULD_DELETE}" = "true" ]; then
+                      log "Deleting sandbox ${ns}/${name}..."
+                      if kubectl delete sandbox "${name}" -n "${ns}" --wait=false 2>/dev/null; then
+                        log "Deleted sandbox ${ns}/${name}"
+                        DELETED=$((DELETED + 1))
+                      else
+                        log "WARNING: Failed to delete sandbox ${ns}/${name}"
+                      fi
+                    fi
+                  done
+
+                  log "TTL controller sweep complete. Checked: ${CHECKED}, Deleted: ${DELETED}"
+              resources:
+                requests:
+                  cpu: 25m
+                  memory: 32Mi
+                limits:
+                  cpu: 100m
+                  memory: 64Mi

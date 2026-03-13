@@ -1,0 +1,94 @@
+---
+# ServiceAccount for OpenClaw sandbox workloads to manage dynamic subagent Sandboxes
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: openclaw-sandbox
+  namespace: default
+  labels:
+    app.kubernetes.io/name: openclaw-sandbox
+    app.kubernetes.io/component: subagent
+---
+# Role granting permissions to create/manage Sandbox CRs in the default namespace
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: openclaw-sandbox-manager
+  namespace: default
+  labels:
+    app.kubernetes.io/name: openclaw-sandbox
+    app.kubernetes.io/component: subagent
+rules:
+  - apiGroups: ["agents.x-k8s.io"]
+    resources: ["sandboxes"]
+    verbs: ["create", "delete", "get", "list", "watch"]
+  - apiGroups: ["agents.x-k8s.io"]
+    resources: ["sandboxes/status"]
+    verbs: ["get"]
+  - apiGroups: [""]
+    resources: ["pods"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: [""]
+    resources: ["pods/log"]
+    verbs: ["get"]
+---
+# Bind the Role to the openclaw-sandbox ServiceAccount
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: openclaw-sandbox-manager-binding
+  namespace: default
+  labels:
+    app.kubernetes.io/name: openclaw-sandbox
+    app.kubernetes.io/component: subagent
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: openclaw-sandbox-manager
+subjects:
+  - kind: ServiceAccount
+    name: openclaw-sandbox
+    namespace: default
+---
+# ClusterRole for the TTL controller to manage Sandboxes across namespaces
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: sandbox-ttl-controller
+  labels:
+    app.kubernetes.io/name: sandbox-ttl-controller
+    app.kubernetes.io/component: subagent
+rules:
+  - apiGroups: ["agents.x-k8s.io"]
+    resources: ["sandboxes"]
+    verbs: ["get", "list", "watch", "delete"]
+  - apiGroups: ["agents.x-k8s.io"]
+    resources: ["sandboxes/status"]
+    verbs: ["get"]
+---
+# ServiceAccount for the TTL controller
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: sandbox-ttl-controller
+  namespace: agent-sandbox-system
+  labels:
+    app.kubernetes.io/name: sandbox-ttl-controller
+    app.kubernetes.io/component: subagent
+---
+# Bind the ClusterRole to the TTL controller ServiceAccount
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: sandbox-ttl-controller-binding
+  labels:
+    app.kubernetes.io/name: sandbox-ttl-controller
+    app.kubernetes.io/component: subagent
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: sandbox-ttl-controller
+subjects:
+  - kind: ServiceAccount
+    name: sandbox-ttl-controller
+    namespace: agent-sandbox-system
