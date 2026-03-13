@@ -12,7 +12,7 @@ variable "location" {
 
 variable "kubernetes_version" {
   description = "AKS Kubernetes version"
-  default     = "1.31"
+  default     = "1.32"
   type        = string
 }
 
