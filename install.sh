@@ -239,19 +239,22 @@ deploy_portals() {
   # Generate JWT secret
   JWT_SECRET=$(openssl rand -hex 32)
 
-  # az acr login
-  az acr login --name "$ACR_NAME"
+  # Build and push images via ACR Tasks (cloud build, platform-agnostic)
+  echo "Building portal images via ACR Tasks (linux/amd64)..."
+  az acr build --registry "$ACR_NAME" \
+    --image openclaw-portal-api:latest \
+    --platform linux/amd64 \
+    --file portals/api/Dockerfile portals/api/
 
-  # Build and push images
-  echo "Building portal images..."
-  docker buildx build --platform linux/amd64 -f portals/api/Dockerfile -t "${ACR_NAME}.azurecr.io/openclaw-portal-api:latest" portals/api/
-  docker push "${ACR_NAME}.azurecr.io/openclaw-portal-api:latest"
+  az acr build --registry "$ACR_NAME" \
+    --image openclaw-admin-portal:latest \
+    --platform linux/amd64 \
+    --file portals/admin/Dockerfile portals/admin/
 
-  docker buildx build --platform linux/amd64 -f portals/admin/Dockerfile -t "${ACR_NAME}.azurecr.io/openclaw-admin-portal:latest" portals/admin/
-  docker push "${ACR_NAME}.azurecr.io/openclaw-admin-portal:latest"
-
-  docker buildx build --platform linux/amd64 -f portals/customer/Dockerfile -t "${ACR_NAME}.azurecr.io/openclaw-customer-portal:latest" portals/customer/
-  docker push "${ACR_NAME}.azurecr.io/openclaw-customer-portal:latest"
+  az acr build --registry "$ACR_NAME" \
+    --image openclaw-customer-portal:latest \
+    --platform linux/amd64 \
+    --file portals/customer/Dockerfile portals/customer/
 
   # Apply K8s manifests (substitute image placeholders)
   PORTAL_API_IMAGE="${ACR_NAME}.azurecr.io/openclaw-portal-api:latest"
