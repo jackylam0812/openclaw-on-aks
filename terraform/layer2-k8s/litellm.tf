@@ -93,7 +93,6 @@ resource "helm_release" "litellm" {
   set {
     name  = "serviceMonitor.enabled"
     value = "false"
-    type  = "string"
   }
 
   depends_on = [
