@@ -1,6 +1,5 @@
 #---------------------------------------------------------------
 # Azure Container Registry (ACR)
-# Replaces AWS ECR
 #---------------------------------------------------------------
 
 resource "azurerm_container_registry" "main" {

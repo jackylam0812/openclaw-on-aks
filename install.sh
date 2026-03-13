@@ -190,60 +190,23 @@ if [ "$confirm" != "yes" ] && [ "$confirm" != "y" ]; then
 fi
 
 #---------------------------------------------------------------
-# Terraform
+# Terraform (two-layer split)
 #---------------------------------------------------------------
-echo ""
-echo "Initializing Terraform..."
-terraform init -upgrade
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+LAYER1_DIR="$SCRIPT_DIR/terraform/layer1-azure"
+LAYER2_DIR="$SCRIPT_DIR/terraform/layer2-k8s"
+STATE_DIR="$SCRIPT_DIR/terraform-states"
+mkdir -p "$STATE_DIR/layer1" "$STATE_DIR/layer2"
 
-TF_VARS="-var=name=$CLUSTER_NAME"
-TF_VARS="$TF_VARS -var=resource_group_name=$RESOURCE_GROUP"
-TF_VARS="$TF_VARS -var=location=$LOCATION"
-TF_VARS="$TF_VARS -var=foundry_location=$FOUNDRY_LOCATION"
+TF_VARS="-var=name=$CLUSTER_NAME -var=resource_group_name=$RESOURCE_GROUP -var=location=$LOCATION -var=foundry_location=$FOUNDRY_LOCATION"
 [ "$MICROSOFT_INTERNAL" = "true" ] && TF_VARS="$TF_VARS -var=microsoft_internal=true"
 
 echo ""
-echo "Planning infrastructure..."
-terraform plan $TF_VARS
-
-echo ""
-# Phase 1: Azure-only resources (AKS cluster, VNet, ACR, Key Vault, AI Foundry)
-# We target only azurerm_* resources first so K8s provider doesn't try to
-# connect before the cluster exists.
 echo "Phase 1/2: Deploying Azure infrastructure (AKS, AI Foundry, ACR...)..."
 echo "This takes ~10-15 minutes..."
-terraform apply -auto-approve $TF_VARS \
-  -target=azurerm_resource_group.main \
-  -target=azurerm_resource_group.foundry \
-  -target=azurerm_virtual_network.main \
-  -target=azurerm_subnet.system \
-  -target=azurerm_subnet.kata \
-  -target=azurerm_subnet.pods \
-  -target=azurerm_nat_gateway.main \
-  -target=azurerm_public_ip.nat \
-  -target=azurerm_nat_gateway_public_ip_association.main \
-  -target=azurerm_subnet_nat_gateway_association.system \
-  -target=azurerm_subnet_nat_gateway_association.kata \
-  -target=azurerm_container_registry.main \
-  -target=azurerm_key_vault.main \
-  -target=azurerm_key_vault.foundry \
-  -target=azurerm_role_assignment.kv_admin \
-  -target=azurerm_role_assignment.foundry_kv_admin \
-  -target=azurerm_storage_account.foundry \
-  -target=azurerm_ai_services.foundry \
-  -target=azurerm_cognitive_deployment.gpt54 \
-  -target=azurerm_ai_foundry.main \
-  -target=azurerm_ai_foundry_project.main \
-  -target=azurerm_kubernetes_cluster.main \
-  -target=azurerm_role_assignment.aks_network_contributor \
-  -target=azurerm_user_assigned_identity.openclaw \
-  -target=azurerm_user_assigned_identity.litellm \
-  -target=azurerm_federated_identity_credential.openclaw_sandbox \
-  -target=azurerm_federated_identity_credential.litellm \
-  -target=azurerm_role_assignment.litellm_openai_scoped \
-  -target=azurerm_role_assignment.openclaw_openai_scoped \
-  -target=random_password.litellm_db \
-  -target=random_password.litellm_db_admin
+cd "$LAYER1_DIR"
+terraform init -upgrade
+terraform apply -auto-approve $TF_VARS
 
 #---------------------------------------------------------------
 # Configure kubectl (after AKS is ready)
@@ -255,10 +218,13 @@ az aks get-credentials --resource-group "$RESOURCE_GROUP" --name "$CLUSTER_NAME"
 echo "Waiting for cluster nodes to be ready..."
 kubectl wait --for=condition=Ready nodes --all --timeout=300s
 
-# Phase 2: K8s resources (namespaces, storage classes, LiteLLM, monitoring)
 echo ""
 echo "Phase 2/2: Deploying Kubernetes workloads (LiteLLM, monitoring...)..."
-terraform apply -auto-approve $TF_VARS
+cd "$LAYER2_DIR"
+terraform init -upgrade
+terraform apply -auto-approve -var=name=$CLUSTER_NAME
+
+cd "$SCRIPT_DIR"
 
 #---------------------------------------------------------------
 # Deploy Portals
@@ -267,8 +233,8 @@ deploy_portals() {
   echo ""
   echo "Building and deploying portals..."
 
-  # Get ACR name from terraform output
-  ACR_NAME=$(terraform output -raw acr_login_server 2>/dev/null | cut -d. -f1)
+  # Get ACR name from layer1 terraform output
+  ACR_NAME=$(terraform -chdir="$LAYER1_DIR" output -raw acr_login_server 2>/dev/null | cut -d. -f1)
 
   # Generate JWT secret
   JWT_SECRET=$(openssl rand -hex 32)
@@ -350,8 +316,8 @@ deploy_portals
 #---------------------------------------------------------------
 # Done
 #---------------------------------------------------------------
-FOUNDRY_ENDPOINT=$(terraform output -raw foundry_endpoint 2>/dev/null || echo "(see terraform output)")
-FOUNDRY_HUB=$(terraform output -raw foundry_hub_name 2>/dev/null || echo "")
+FOUNDRY_ENDPOINT=$(terraform -chdir="$LAYER1_DIR" output -raw foundry_endpoint 2>/dev/null || echo "(see terraform output)")
+FOUNDRY_HUB=$(terraform -chdir="$LAYER1_DIR" output -raw foundry_hub_name 2>/dev/null || echo "")
 
 echo ""
 echo "╔══════════════════════════════════════════════════════╗"

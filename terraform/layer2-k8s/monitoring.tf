@@ -1,12 +1,7 @@
+#---------------------------------------------------------------
 # Prometheus and Grafana for monitoring
+#---------------------------------------------------------------
 
-resource "kubernetes_namespace_v1" "monitoring" {
-  metadata {
-    name = "monitoring"
-  }
-}
-
-# Prometheus using kube-prometheus-stack
 resource "helm_release" "kube_prometheus_stack" {
   name       = "kube-prometheus-stack"
   repository = "https://prometheus-community.github.io/helm-charts"
@@ -46,7 +41,7 @@ resource "helm_release" "kube_prometheus_stack" {
       }
       grafana = {
         enabled       = true
-        adminPassword = random_password.grafana_admin.result
+        adminPassword = local.layer1.grafana_admin_password
         persistence = {
           enabled          = true
           storageClassName = "azure-disk-premium"
@@ -64,26 +59,39 @@ resource "helm_release" "kube_prometheus_stack" {
 
   depends_on = [
     kubernetes_storage_class_v1.azure_disk_premium,
-    azurerm_kubernetes_cluster.main,
   ]
 }
 
-resource "random_password" "grafana_admin" {
-  length  = 16
-  special = true
-}
+# Custom ServiceMonitor with correct path
+resource "kubectl_manifest" "litellm_servicemonitor" {
+  yaml_body = yamlencode({
+    apiVersion = "monitoring.coreos.com/v1"
+    kind       = "ServiceMonitor"
+    metadata = {
+      name      = "litellm"
+      namespace = kubernetes_namespace_v1.litellm.metadata[0].name
+      labels = {
+        release = "kube-prometheus-stack"
+      }
+    }
+    spec = {
+      selector = {
+        matchLabels = {
+          "app.kubernetes.io/name"     = "litellm"
+          "app.kubernetes.io/instance" = "litellm"
+        }
+      }
+      endpoints = [{
+        port          = "http"
+        path          = "/metrics"
+        interval      = "30s"
+        scrapeTimeout = "10s"
+      }]
+    }
+  })
 
-output "grafana_admin_password" {
-  value     = random_password.grafana_admin.result
-  sensitive = true
-}
-
-output "grafana_access" {
-  value       = "Access via port-forward: kubectl port-forward -n monitoring svc/kube-prometheus-stack-grafana 3000:80"
-  description = "Grafana access command (username: admin)"
-}
-
-output "grafana_service_name" {
-  value       = "kube-prometheus-stack-grafana"
-  description = "Grafana service name in monitoring namespace"
+  depends_on = [
+    helm_release.litellm,
+    helm_release.kube_prometheus_stack,
+  ]
 }

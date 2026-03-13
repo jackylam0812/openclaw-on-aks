@@ -11,14 +11,14 @@ resource "azurerm_kubernetes_cluster" "main" {
 
   # System node pool (default)
   default_node_pool {
-    name                = "system"
-    vm_size             = var.system_node_vm_size
-    vnet_subnet_id      = azurerm_subnet.system.id
+    name                 = "system"
+    vm_size              = var.system_node_vm_size
+    vnet_subnet_id       = azurerm_subnet.system.id
     auto_scaling_enabled = true
-    min_count           = 1
-    max_count           = 3
-    os_disk_size_gb     = 100
-    os_sku              = "AzureLinux"
+    min_count            = 1
+    max_count            = 3
+    os_disk_size_gb      = 100
+    os_sku               = "AzureLinux"
 
     node_labels = {
       "WorkerType"    = "ON_DEMAND"
@@ -72,10 +72,6 @@ resource "azurerm_kubernetes_cluster_node_pool" "kata" {
   kubernetes_cluster_id = azurerm_kubernetes_cluster.main.id
   vm_size               = var.kata_node_vm_size
   vnet_subnet_id        = azurerm_subnet.kata.id
-  # Note: workload_runtime is not used for Kata Containers node pools.
-  # Kata isolation is configured via the kata-mshv-vm-isolation RuntimeClass
-  # and node labels/taints. The azurerm provider only accepts OCIContainer
-  # or WasmWasi for this field.
   os_sku                = "AzureLinux"
 
   auto_scaling_enabled = true
@@ -84,8 +80,8 @@ resource "azurerm_kubernetes_cluster_node_pool" "kata" {
   os_disk_size_gb      = 200
 
   node_labels = {
-    "workload-type"                    = "kata"
-    "katacontainers.io/kata-runtime"   = "true"
+    "workload-type"                  = "kata"
+    "katacontainers.io/kata-runtime" = "true"
   }
 
   node_taints = [
@@ -102,29 +98,4 @@ resource "azurerm_role_assignment" "aks_network_contributor" {
   scope                = azurerm_virtual_network.main.id
   role_definition_name = "Network Contributor"
   principal_id         = azurerm_kubernetes_cluster.main.identity[0].principal_id
-}
-
-#---------------------------------------------------------------
-# Namespaces
-#---------------------------------------------------------------
-resource "kubernetes_namespace_v1" "kata_system" {
-  metadata {
-    name = local.kata_namespace
-    labels = {
-      name = local.kata_namespace
-    }
-  }
-
-  depends_on = [azurerm_kubernetes_cluster.main]
-}
-
-resource "kubernetes_namespace_v1" "openclaw" {
-  metadata {
-    name = local.openclaw_namespace
-    labels = {
-      name = local.openclaw_namespace
-    }
-  }
-
-  depends_on = [azurerm_kubernetes_cluster.main]
 }

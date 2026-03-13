@@ -1,14 +1,5 @@
 #---------------------------------------------------------------
 # Azure AI Foundry + gpt-5.4 deployment
-#
-# Architecture:
-#   azurerm_ai_services   (AI Services account, OpenAI kind)
-#     └── azurerm_cognitive_deployment  (gpt-5.4 model)
-#   azurerm_ai_foundry    (Foundry Hub, wraps AI Services)
-#     └── azurerm_ai_foundry_project    (Foundry Project)
-#
-# Supported regions for gpt-5.4:
-#   eastus2, swedencentral, polandcentral, southcentralus
 #---------------------------------------------------------------
 
 resource "azurerm_resource_group" "foundry" {
@@ -31,8 +22,6 @@ resource "azurerm_storage_account" "foundry" {
 
 #---------------------------------------------------------------
 # Key Vault (required by AI Foundry Hub)
-# Reuse the existing KV from key-vault.tf if same region,
-# otherwise create a dedicated one for Foundry
 #---------------------------------------------------------------
 resource "azurerm_key_vault" "foundry" {
   name                       = substr(replace("${var.name}-fkv", "-", ""), 0, 24)
@@ -41,7 +30,7 @@ resource "azurerm_key_vault" "foundry" {
   tenant_id                  = data.azurerm_client_config.current.tenant_id
   sku_name                   = "standard"
   soft_delete_retention_days = 7
-  purge_protection_enabled   = true   # required by AI Foundry
+  purge_protection_enabled   = true
 
   rbac_authorization_enabled = true
   tags                       = local.tags
@@ -55,7 +44,6 @@ resource "azurerm_role_assignment" "foundry_kv_admin" {
 
 #---------------------------------------------------------------
 # Azure AI Services (OpenAI + other AI APIs)
-# This is the resource that hosts model deployments
 #---------------------------------------------------------------
 resource "azurerm_ai_services" "foundry" {
   name                = substr(replace("${var.name}-aisvcs", "-", ""), 0, 24)
@@ -113,19 +101,4 @@ resource "azurerm_ai_foundry_project" "main" {
   ai_services_hub_id = azurerm_ai_foundry.main.id
 
   tags = local.tags
-}
-
-#---------------------------------------------------------------
-# Role assignments: LiteLLM + OpenClaw sandbox → AI Services
-#---------------------------------------------------------------
-resource "azurerm_role_assignment" "litellm_openai_scoped" {
-  scope                = azurerm_ai_services.foundry.id
-  role_definition_name = "Cognitive Services OpenAI User"
-  principal_id         = azurerm_user_assigned_identity.litellm.principal_id
-}
-
-resource "azurerm_role_assignment" "openclaw_openai_scoped" {
-  scope                = azurerm_ai_services.foundry.id
-  role_definition_name = "Cognitive Services OpenAI User"
-  principal_id         = azurerm_user_assigned_identity.openclaw.principal_id
 }

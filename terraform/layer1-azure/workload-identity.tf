@@ -1,6 +1,6 @@
 #---------------------------------------------------------------
-# Azure Workload Identity for OpenClaw Sandboxes
-# Replaces AWS EKS Pod Identity with Azure OIDC Federation
+# Azure Workload Identity - Azure resources only
+# (Kubernetes ServiceAccounts are in layer2-k8s)
 #---------------------------------------------------------------
 
 # Managed Identity for OpenClaw workloads
@@ -21,27 +21,7 @@ resource "azurerm_federated_identity_credential" "openclaw_sandbox" {
   subject   = "system:serviceaccount:default:openclaw-sandbox"
 }
 
-# Note: OpenAI role assignment for openclaw is in azure-openai.tf (scoped to the AI account)
-
-# Kubernetes ServiceAccount annotated with Workload Identity
-resource "kubernetes_service_account_v1" "openclaw_sandbox" {
-  metadata {
-    name      = "openclaw-sandbox"
-    namespace = "default"
-    annotations = {
-      "azure.workload.identity/client-id" = azurerm_user_assigned_identity.openclaw.client_id
-    }
-    labels = {
-      "azure.workload.identity/use" = "true"
-    }
-  }
-
-  depends_on = [azurerm_kubernetes_cluster.main]
-}
-
-#---------------------------------------------------------------
 # Managed Identity for LiteLLM (Azure OpenAI access)
-#---------------------------------------------------------------
 resource "azurerm_user_assigned_identity" "litellm" {
   name                = "${local.name}-litellm-identity"
   location            = local.location
@@ -57,4 +37,5 @@ resource "azurerm_federated_identity_credential" "litellm" {
   subject   = "system:serviceaccount:litellm:litellm"
 }
 
-# Note: OpenAI role assignment for litellm is in azure-openai.tf (scoped to the AI account)
+# Role assignments for OpenAI access are in azure-openai.tf
+# (azurerm_role_assignment.litellm_openai_scoped and openclaw_openai_scoped)

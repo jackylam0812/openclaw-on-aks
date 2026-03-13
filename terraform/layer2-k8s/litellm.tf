@@ -2,18 +2,12 @@
 # LiteLLM Proxy - Azure OpenAI Backend
 #---------------------------------------------------------------
 
-resource "kubernetes_namespace_v1" "litellm" {
-  metadata {
-    name = "litellm"
-  }
-}
-
 resource "kubernetes_service_account_v1" "litellm" {
   metadata {
     name      = "litellm"
     namespace = kubernetes_namespace_v1.litellm.metadata[0].name
     annotations = {
-      "azure.workload.identity/client-id" = azurerm_user_assigned_identity.litellm.client_id
+      "azure.workload.identity/client-id" = local.layer1.litellm_managed_identity_client_id
     }
     labels = {
       "azure.workload.identity/use" = "true"
@@ -57,12 +51,12 @@ resource "helm_release" "litellm" {
 
   set_sensitive {
     name  = "postgresql.auth.password"
-    value = random_password.litellm_db.result
+    value = local.layer1.litellm_db_password
   }
 
   set_sensitive {
     name  = "postgresql.auth.postgres-password"
-    value = random_password.litellm_db_admin.result
+    value = local.layer1.litellm_db_admin_password
   }
 
   # Azure OpenAI model - GPT-5.4 (mapped as gpt-5.4 for OpenClaw compatibility)
@@ -78,7 +72,7 @@ resource "helm_release" "litellm" {
 
   set {
     name  = "proxy_config.model_list[0].litellm_params.api_base"
-    value = azurerm_ai_services.foundry.endpoint
+    value = local.layer1.foundry_endpoint
   }
 
   set {
@@ -99,65 +93,6 @@ resource "helm_release" "litellm" {
   }
 
   depends_on = [
-    azurerm_kubernetes_cluster.main,
-    helm_release.kube_prometheus_stack,
-    azurerm_federated_identity_credential.litellm,
-    azurerm_cognitive_deployment.gpt54,
-    azurerm_role_assignment.litellm_openai_scoped,
-    azurerm_ai_foundry_project.main,
-  ]
-}
-
-# Custom ServiceMonitor with correct path
-resource "kubectl_manifest" "litellm_servicemonitor" {
-  yaml_body = yamlencode({
-    apiVersion = "monitoring.coreos.com/v1"
-    kind       = "ServiceMonitor"
-    metadata = {
-      name      = "litellm"
-      namespace = kubernetes_namespace_v1.litellm.metadata[0].name
-      labels = {
-        release = "kube-prometheus-stack"
-      }
-    }
-    spec = {
-      selector = {
-        matchLabels = {
-          "app.kubernetes.io/name"     = "litellm"
-          "app.kubernetes.io/instance" = "litellm"
-        }
-      }
-      endpoints = [{
-        port          = "http"
-        path          = "/metrics"
-        interval      = "30s"
-        scrapeTimeout = "10s"
-      }]
-    }
-  })
-
-  depends_on = [
-    helm_release.litellm,
     helm_release.kube_prometheus_stack,
   ]
-}
-
-resource "random_password" "litellm_db" {
-  length  = 32
-  special = true
-}
-
-resource "random_password" "litellm_db_admin" {
-  length  = 32
-  special = true
-}
-
-output "litellm_db_password" {
-  value     = random_password.litellm_db.result
-  sensitive = true
-}
-
-output "litellm_db_admin_password" {
-  value     = random_password.litellm_db_admin.result
-  sensitive = true
 }

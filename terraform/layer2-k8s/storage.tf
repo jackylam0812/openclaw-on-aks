@@ -1,7 +1,5 @@
 #---------------------------------------------------------------
 # Azure Disk CSI - Premium SSD StorageClass (default)
-# AKS ships with azure-disk-csi built-in; we just create a
-# custom StorageClass with Premium SSD settings.
 #---------------------------------------------------------------
 
 resource "kubernetes_storage_class_v1" "azure_disk_premium" {
@@ -20,6 +18,24 @@ resource "kubernetes_storage_class_v1" "azure_disk_premium" {
   parameters = {
     skuName = "Premium_LRS"
   }
+}
 
-  depends_on = [azurerm_kubernetes_cluster.main]
+#---------------------------------------------------------------
+# Azure Files CSI - Premium StorageClass for shared storage
+#---------------------------------------------------------------
+
+resource "kubernetes_storage_class_v1" "azure_files_premium" {
+  metadata {
+    name = "azure-files-premium"
+  }
+
+  storage_provisioner    = "file.csi.azure.com"
+  reclaim_policy         = "Delete"
+  allow_volume_expansion = true
+
+  parameters = {
+    skuName = "Premium_LRS"
+  }
+
+  mount_options = ["dir_mode=0700", "file_mode=0700", "uid=1000", "gid=1000"]
 }
