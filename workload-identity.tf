@@ -14,12 +14,11 @@ resource "azurerm_user_assigned_identity" "openclaw" {
 # Federated credential: binds the Managed Identity to the
 # openclaw-sandbox ServiceAccount in the default namespace
 resource "azurerm_federated_identity_credential" "openclaw_sandbox" {
-  name                = "${local.name}-openclaw-sandbox-fic"
-  resource_group_name = local.resource_group
-  parent_id           = azurerm_user_assigned_identity.openclaw.id
-  audience            = ["api://AzureADTokenExchange"]
-  issuer              = azurerm_kubernetes_cluster.main.oidc_issuer_url
-  subject             = "system:serviceaccount:default:openclaw-sandbox"
+  name      = "${local.name}-openclaw-sandbox-fic"
+  parent_id = azurerm_user_assigned_identity.openclaw.id
+  audience  = ["api://AzureADTokenExchange"]
+  issuer    = azurerm_kubernetes_cluster.main.oidc_issuer_url
+  subject   = "system:serviceaccount:default:openclaw-sandbox"
 }
 
 # Grant Cognitive Services OpenAI User role for Azure OpenAI access
@@ -56,12 +55,11 @@ resource "azurerm_user_assigned_identity" "litellm" {
 }
 
 resource "azurerm_federated_identity_credential" "litellm" {
-  name                = "${local.name}-litellm-fic"
-  resource_group_name = local.resource_group
-  parent_id           = azurerm_user_assigned_identity.litellm.id
-  audience            = ["api://AzureADTokenExchange"]
-  issuer              = azurerm_kubernetes_cluster.main.oidc_issuer_url
-  subject             = "system:serviceaccount:litellm:litellm"
+  name      = "${local.name}-litellm-fic"
+  parent_id = azurerm_user_assigned_identity.litellm.id
+  audience  = ["api://AzureADTokenExchange"]
+  issuer    = azurerm_kubernetes_cluster.main.oidc_issuer_url
+  subject   = "system:serviceaccount:litellm:litellm"
 }
 
 resource "azurerm_role_assignment" "litellm_openai" {
