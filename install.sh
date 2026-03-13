@@ -272,13 +272,36 @@ deploy_portals() {
   sed "s|CUSTOMER_PORTAL_IMAGE|$CUSTOMER_IMAGE|g; s|PORTAL_API_URL|http://portal-api.portals.svc.cluster.local:3000|g" \
     portals/k8s/customer-portal-deployment.yaml | kubectl apply -f -
 
-  # Install nginx ingress controller if not present
-  kubectl get ns ingress-nginx >/dev/null 2>&1 || \
-    helm repo add ingress-nginx https://kubernetes.github.io/ingress-nginx && \
-    helm repo update && \
-    helm upgrade --install ingress-nginx ingress-nginx/ingress-nginx \
-      --namespace ingress-nginx --create-namespace \
-      --set controller.service.type=LoadBalancer
+  # Install nginx ingress controller
+  helm repo add ingress-nginx https://kubernetes.github.io/ingress-nginx 2>/dev/null || true
+  helm repo update
+  helm upgrade --install ingress-nginx ingress-nginx/ingress-nginx \
+    --namespace ingress-nginx --create-namespace \
+    --set controller.service.type=LoadBalancer
+
+  # Wait for ingress controller to be ready before applying ingress
+  echo "Waiting for ingress-nginx controller to be ready..."
+  kubectl wait --namespace ingress-nginx \
+    --for=condition=ready pod \
+    --selector=app.kubernetes.io/component=controller \
+    --timeout=120s
+
+  # Open NSG ports 80/443 for the AKS node resource group
+  echo "Opening NSG ports 80/443 for AKS nodes..."
+  NODE_RG=$(az aks show -g "$RESOURCE_GROUP" -n "$CLUSTER_NAME" --query nodeResourceGroup -o tsv 2>/dev/null)
+  if [ -n "$NODE_RG" ]; then
+    NSG_NAME=$(az network nsg list -g "$NODE_RG" --query '[0].name' -o tsv 2>/dev/null)
+    if [ -n "$NSG_NAME" ]; then
+      az network nsg rule create -g "$NODE_RG" --nsg-name "$NSG_NAME" \
+        -n Allow-HTTP-HTTPS --priority 100 \
+        --destination-port-ranges 80 443 \
+        --protocol Tcp --access Allow --direction Inbound \
+        --output none 2>/dev/null || true
+      echo "  ✓ NSG rule added: $NSG_NAME (HTTP/HTTPS)"
+    else
+      echo "  ⚠ Could not find NSG in $NODE_RG (may not be needed)"
+    fi
+  fi
 
   # Apply ingress
   kubectl apply -f portals/k8s/ingress.yaml
