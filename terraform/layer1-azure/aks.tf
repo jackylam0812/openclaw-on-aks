@@ -40,9 +40,8 @@ resource "azurerm_kubernetes_cluster" "main" {
     dns_service_ip      = "172.16.0.10"
     pod_cidr            = "10.244.0.0/16"
 
-    load_balancer_profile {
-      managed_outbound_ip_count = 1
-    }
+    # No load_balancer_profile — AKS manages outbound IPs automatically.
+    # Do NOT combine with NAT Gateway on the same subnet (causes asymmetric routing).
   }
 
   # Enable OIDC issuer for Workload Identity
