@@ -1,11 +1,17 @@
 variable "name" {
-  description = "Name prefix for all resources"
+  description = "Name prefix for all resources (used as AKS cluster name and resource prefix)"
   default     = "openclaw-kata-aks"
   type        = string
 }
 
+variable "resource_group_name" {
+  description = "Name of the resource group for AKS and core resources. Defaults to <name>-rg if empty."
+  type        = string
+  default     = ""
+}
+
 variable "location" {
-  description = "Azure region"
+  description = "Azure region for AKS and core resources"
   type        = string
   default     = "southeastasia"
 }
@@ -46,14 +52,14 @@ variable "kata_node_max_count" {
   default     = 10
 }
 
-variable "openai_location" {
-  description = "Azure region for the OpenAI (AI Foundry) resource. Must support gpt-5.4: eastus2, swedencentral, polandcentral, southcentralus"
+variable "foundry_location" {
+  description = "Azure region for AI Foundry + gpt-5.4. Supported: eastus2, swedencentral, polandcentral, southcentralus"
   type        = string
   default     = "eastus2"
 
   validation {
-    condition     = contains(["eastus2", "swedencentral", "polandcentral", "southcentralus"], var.openai_location)
-    error_message = "openai_location must be one of: eastus2, swedencentral, polandcentral, southcentralus (regions that support gpt-5.4)."
+    condition     = contains(["eastus2", "swedencentral", "polandcentral", "southcentralus"], var.foundry_location)
+    error_message = "foundry_location must be one of: eastus2, swedencentral, polandcentral, southcentralus (regions that support gpt-5.4)."
   }
 }
 

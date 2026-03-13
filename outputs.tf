@@ -39,12 +39,22 @@ output "acr_login_server" {
   value       = azurerm_container_registry.main.login_server
 }
 
-output "openai_endpoint" {
-  description = "Azure OpenAI endpoint URL (used by LiteLLM)"
-  value       = azurerm_cognitive_account.openai.endpoint
+output "foundry_endpoint" {
+  description = "Azure AI Services endpoint URL (used by LiteLLM for gpt-5.4)"
+  value       = azurerm_ai_services.foundry.endpoint
 }
 
-output "openai_resource_group" {
-  description = "Azure OpenAI resource group"
-  value       = azurerm_resource_group.openai.name
+output "foundry_hub_name" {
+  description = "Azure AI Foundry Hub name"
+  value       = azurerm_ai_foundry.main.name
+}
+
+output "foundry_project_name" {
+  description = "Azure AI Foundry Project name"
+  value       = azurerm_ai_foundry_project.main.name
+}
+
+output "foundry_resource_group" {
+  description = "Azure AI Foundry resource group"
+  value       = azurerm_resource_group.foundry.name
 }

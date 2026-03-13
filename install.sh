@@ -2,46 +2,56 @@
 
 set -e
 
-# Default values
-LOCATION="${AZURE_LOCATION:-southeastasia}"
-CLUSTER_NAME="${CLUSTER_NAME:-openclaw-kata-aks}"
+#---------------------------------------------------------------
+# Default values (can be overridden by flags or env vars)
+#---------------------------------------------------------------
+CLUSTER_NAME="${CLUSTER_NAME:-}"
+RESOURCE_GROUP="${RESOURCE_GROUP:-}"
+LOCATION="${AZURE_LOCATION:-}"
+FOUNDRY_LOCATION="${FOUNDRY_LOCATION:-}"
 MICROSOFT_INTERNAL=false
-OPENAI_LOCATION="${OPENAI_LOCATION:-}"
 
-# Parse command line arguments
+#---------------------------------------------------------------
+# Argument parsing
+#---------------------------------------------------------------
 while [[ $# -gt 0 ]]; do
   case $1 in
+    --cluster-name)
+      CLUSTER_NAME="$2"
+      shift 2
+      ;;
+    --resource-group)
+      RESOURCE_GROUP="$2"
+      shift 2
+      ;;
     --location)
       LOCATION="$2"
       shift 2
       ;;
-    --cluster-name)
-      CLUSTER_NAME="$2"
+    --foundry-location)
+      FOUNDRY_LOCATION="$2"
       shift 2
       ;;
     --microsoft-internal)
       MICROSOFT_INTERNAL=true
       shift
       ;;
-    --openai-location)
-      OPENAI_LOCATION="$2"
-      shift 2
-      ;;
     --help)
       echo "Usage: $0 [OPTIONS]"
       echo ""
       echo "Options:"
-      echo "  --location LOCATION      Azure region (default: southeastasia)"
-      echo "  --cluster-name NAME      AKS cluster name (default: openclaw-kata-aks)"
-      echo "  --openai-location REGION     Azure region for OpenAI/gpt-5.4 (default: eastus2)"
+      echo "  --cluster-name NAME          AKS cluster name (default: openclaw-kata-aks)"
+      echo "  --resource-group NAME        Resource group name (default: <cluster-name>-rg)"
+      echo "  --location REGION            AKS region (default: southeastasia)"
+      echo "  --foundry-location REGION    AI Foundry region for gpt-5.4 (default: eastus2)"
       echo "                               Supported: eastus2, swedencentral, polandcentral, southcentralus"
-      echo "  --microsoft-internal         Mark as Microsoft internal subscription (adds SecurityControl=Ignore tag)"
+      echo "  --microsoft-internal         Add SecurityControl=Ignore tag to all resources"
       echo "  --help                       Show this help message"
       echo ""
       echo "Examples:"
-      echo "  $0 --location westus2"
-      echo "  $0 --location eastus --cluster-name my-openclaw"
-      echo "  $0 --openai-location swedencentral"
+      echo "  $0"
+      echo "  $0 --cluster-name my-openclaw --location eastus"
+      echo "  $0 --foundry-location swedencentral"
       echo "  $0 --microsoft-internal"
       exit 0
       ;;
@@ -53,104 +63,182 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
-echo "Installing OpenClaw on AKS with Kata Containers and LiteLLM..."
-echo "Location: $LOCATION"
-echo "Cluster Name: $CLUSTER_NAME"
+echo ""
+echo "╔══════════════════════════════════════════════════════╗"
+echo "║   OpenClaw on AKS — Interactive Setup                ║"
+echo "╚══════════════════════════════════════════════════════╝"
 echo ""
 
-# Check prerequisites
-command -v az >/dev/null 2>&1 || { echo "Azure CLI (az) is required but not installed. Aborting." >&2; exit 1; }
-command -v kubectl >/dev/null 2>&1 || { echo "kubectl is required but not installed. Aborting." >&2; exit 1; }
-command -v terraform >/dev/null 2>&1 || { echo "terraform is required but not installed. Aborting." >&2; exit 1; }
-command -v helm >/dev/null 2>&1 || { echo "helm is required but not installed. Aborting." >&2; exit 1; }
+#---------------------------------------------------------------
+# Prerequisites check
+#---------------------------------------------------------------
+echo "Checking prerequisites..."
+MISSING=0
+for cmd in az kubectl terraform helm; do
+  if ! command -v "$cmd" >/dev/null 2>&1; then
+    echo "  ✗ $cmd not found"
+    MISSING=1
+  else
+    echo "  ✓ $cmd"
+  fi
+done
+[ $MISSING -eq 1 ] && { echo ""; echo "Please install missing tools and retry."; exit 1; }
+echo ""
 
-echo "✓ Prerequisites check passed"
-
-# Check Azure login
-echo "Checking Azure login status..."
+#---------------------------------------------------------------
+# Azure login
+#---------------------------------------------------------------
+echo "Checking Azure login..."
 az account show >/dev/null 2>&1 || {
-  echo "Not logged in to Azure. Running 'az login'..."
+  echo "Not logged in. Running 'az login'..."
   az login
 }
-
 SUBSCRIPTION_ID=$(az account show --query id -o tsv)
-echo "✓ Logged in to Azure (Subscription: $SUBSCRIPTION_ID)"
+SUBSCRIPTION_NAME=$(az account show --query name -o tsv)
+echo "  ✓ Subscription: $SUBSCRIPTION_NAME ($SUBSCRIPTION_ID)"
+echo ""
 
-# Ask if this is a Microsoft internal subscription (unless already set via flag)
-# Ask for OpenAI location if not provided
-if [ -z "$OPENAI_LOCATION" ]; then
+#---------------------------------------------------------------
+# Interactive prompts (skip if already set via flags/env)
+#---------------------------------------------------------------
+
+# 1. Cluster name
+if [ -z "$CLUSTER_NAME" ]; then
+  read -p "AKS cluster name [openclaw-kata-aks]: " input
+  CLUSTER_NAME="${input:-openclaw-kata-aks}"
+fi
+echo "  ✓ Cluster name: $CLUSTER_NAME"
+
+# 2. Resource group
+if [ -z "$RESOURCE_GROUP" ]; then
+  default_rg="${CLUSTER_NAME}-rg"
+  read -p "Resource group name [$default_rg]: " input
+  RESOURCE_GROUP="${input:-$default_rg}"
+fi
+echo "  ✓ Resource group: $RESOURCE_GROUP"
+
+# 3. AKS location
+if [ -z "$LOCATION" ]; then
   echo ""
-  echo "Select Azure region for OpenAI / gpt-5.4 deployment:"
-  echo "  1) eastus2        (East US 2)       [default]"
+  echo "AKS cluster region (where Kubernetes runs):"
+  echo "  1) southeastasia  (Southeast Asia — Singapore)  [default]"
+  echo "  2) eastasia       (East Asia — Hong Kong)"
+  echo "  3) eastus2        (East US 2)"
+  echo "  4) westeurope     (West Europe)"
+  echo "  Or type any valid Azure region name."
+  read -p "Enter number or region name [1]: " input
+  case "$input" in
+    2|eastasia)     LOCATION="eastasia" ;;
+    3|eastus2)      LOCATION="eastus2" ;;
+    4|westeurope)   LOCATION="westeurope" ;;
+    ""|1|southeastasia) LOCATION="southeastasia" ;;
+    *)              LOCATION="$input" ;;
+  esac
+fi
+echo "  ✓ AKS location: $LOCATION"
+
+# 4. AI Foundry location
+if [ -z "$FOUNDRY_LOCATION" ]; then
+  echo ""
+  echo "AI Foundry region (where gpt-5.4 is deployed):"
+  echo "  Supported regions: eastus2, swedencentral, polandcentral, southcentralus"
+  echo "  1) eastus2        (East US 2)        [default]"
   echo "  2) swedencentral  (Sweden Central)"
   echo "  3) polandcentral  (Poland Central)"
   echo "  4) southcentralus (South Central US)"
-  read -p "Enter number or region name [1]: " openai_location_choice
-  case "$openai_location_choice" in
-    2|swedencentral)  OPENAI_LOCATION="swedencentral" ;;
-    3|polandcentral)  OPENAI_LOCATION="polandcentral" ;;
-    4|southcentralus) OPENAI_LOCATION="southcentralus" ;;
-    *)                OPENAI_LOCATION="eastus2" ;;
+  read -p "Enter number or region name [1]: " input
+  case "$input" in
+    2|swedencentral)  FOUNDRY_LOCATION="swedencentral" ;;
+    3|polandcentral)  FOUNDRY_LOCATION="polandcentral" ;;
+    4|southcentralus) FOUNDRY_LOCATION="southcentralus" ;;
+    *)                FOUNDRY_LOCATION="eastus2" ;;
   esac
 fi
-echo "✓ OpenAI location: $OPENAI_LOCATION"
+echo "  ✓ AI Foundry location: $FOUNDRY_LOCATION"
 
+# 5. Microsoft internal subscription
 if [ "$MICROSOFT_INTERNAL" = "false" ]; then
   echo ""
-  read -p "Is this a Microsoft internal subscription? (yes/no): " ms_internal_answer
-  if [ "$ms_internal_answer" = "yes" ] || [ "$ms_internal_answer" = "y" ]; then
+  read -p "Is this a Microsoft internal subscription? (yes/no) [no]: " input
+  if [ "$input" = "yes" ] || [ "$input" = "y" ]; then
     MICROSOFT_INTERNAL=true
   fi
 fi
-
 if [ "$MICROSOFT_INTERNAL" = "true" ]; then
-  echo "✓ Microsoft internal subscription detected — SecurityControl=Ignore tag will be applied to all resources"
+  echo "  ✓ Microsoft internal: SecurityControl=Ignore will be added to all resources"
 fi
+
+#---------------------------------------------------------------
+# Summary before deploy
+#---------------------------------------------------------------
 echo ""
-
-# Initialize Terraform
-echo "Initializing Terraform..."
-terraform init
-
-# Build Terraform var flags
-TF_VARS="-var=location=$LOCATION -var=name=$CLUSTER_NAME -var=openai_location=$OPENAI_LOCATION"
-if [ "$MICROSOFT_INTERNAL" = "true" ]; then
-  TF_VARS="$TF_VARS -var=microsoft_internal=true"
+echo "────────────────────────────────────────────────────────"
+echo "  Deployment summary"
+echo "────────────────────────────────────────────────────────"
+echo "  Subscription  : $SUBSCRIPTION_NAME"
+echo "  Cluster name  : $CLUSTER_NAME"
+echo "  Resource group: $RESOURCE_GROUP"
+echo "  AKS region    : $LOCATION"
+echo "  Foundry region: $FOUNDRY_LOCATION (gpt-5.4)"
+echo "  MS internal   : $MICROSOFT_INTERNAL"
+echo "────────────────────────────────────────────────────────"
+echo ""
+read -p "Proceed with deployment? (yes/no): " confirm
+if [ "$confirm" != "yes" ] && [ "$confirm" != "y" ]; then
+  echo "Deployment cancelled."
+  exit 0
 fi
 
-# Plan
+#---------------------------------------------------------------
+# Terraform
+#---------------------------------------------------------------
+echo ""
+echo "Initializing Terraform..."
+terraform init -upgrade
+
+TF_VARS="-var=name=$CLUSTER_NAME"
+TF_VARS="$TF_VARS -var=resource_group_name=$RESOURCE_GROUP"
+TF_VARS="$TF_VARS -var=location=$LOCATION"
+TF_VARS="$TF_VARS -var=foundry_location=$FOUNDRY_LOCATION"
+[ "$MICROSOFT_INTERNAL" = "true" ] && TF_VARS="$TF_VARS -var=microsoft_internal=true"
+
+echo ""
 echo "Planning infrastructure..."
 terraform plan $TF_VARS
 
-# Apply
-echo "Deploying infrastructure..."
-read -p "Do you want to proceed with deployment? (yes/no): " confirm
-if [ "$confirm" != "yes" ]; then
-    echo "Deployment cancelled."
-    exit 0
-fi
-
+echo ""
+echo "Applying infrastructure (this takes ~10-15 minutes)..."
 terraform apply -auto-approve $TF_VARS
 
+#---------------------------------------------------------------
 # Configure kubectl
+#---------------------------------------------------------------
+echo ""
 echo "Configuring kubectl..."
-RESOURCE_GROUP="${CLUSTER_NAME}-rg"
 az aks get-credentials --resource-group "$RESOURCE_GROUP" --name "$CLUSTER_NAME" --overwrite-existing
 
-# Wait for cluster to be ready
-echo "Waiting for cluster to be ready..."
+echo "Waiting for cluster nodes to be ready..."
 kubectl wait --for=condition=Ready nodes --all --timeout=300s
 
+#---------------------------------------------------------------
+# Done
+#---------------------------------------------------------------
+FOUNDRY_ENDPOINT=$(terraform output -raw foundry_endpoint 2>/dev/null || echo "(see terraform output)")
+FOUNDRY_HUB=$(terraform output -raw foundry_hub_name 2>/dev/null || echo "")
+
 echo ""
-echo "=========================================="
-echo "Deployment completed successfully!"
-echo "=========================================="
+echo "╔══════════════════════════════════════════════════════╗"
+echo "║   Deployment complete!                               ║"
+echo "╚══════════════════════════════════════════════════════╝"
 echo ""
-echo "Cluster: $CLUSTER_NAME"
-echo "Location: $LOCATION"
-echo "Resource Group: $RESOURCE_GROUP"
+echo "  Cluster      : $CLUSTER_NAME"
+echo "  Resource group: $RESOURCE_GROUP"
+echo "  AKS region   : $LOCATION"
+echo "  Foundry Hub  : $FOUNDRY_HUB"
+echo "  Foundry API  : $FOUNDRY_ENDPOINT"
 echo ""
 echo "Next steps:"
+echo ""
 echo "1. Generate LiteLLM API key:"
 echo "   MASTER_KEY=\$(kubectl get secret litellm-masterkey -n litellm -o jsonpath='{.data.masterkey}' | base64 -d)"
 echo "   kubectl run -n litellm gen-key --rm -i --restart=Never --image=curlimages/curl -- \\"
@@ -160,10 +248,9 @@ echo "     -H \"Content-Type: application/json\" \\"
 echo "     -d '{\"models\": [\"gpt-5.4\"], \"duration\": \"30d\"}'"
 echo ""
 echo "2. Deploy OpenClaw sandbox:"
-echo "   cd examples"
-echo "   kubectl apply -f openclaw-slack-sandbox.yaml"
+echo "   kubectl apply -f examples/openclaw-slack-sandbox.yaml"
 echo ""
 echo "3. Check status:"
-echo "   kubectl get sandbox -A"
 echo "   kubectl get pods -A"
+echo "   kubectl get sandbox -A"
 echo ""

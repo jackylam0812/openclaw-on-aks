@@ -42,7 +42,7 @@ data "azuread_client_config" "current" {}
 
 # Resource Group
 resource "azurerm_resource_group" "main" {
-  name     = "${var.name}-rg"
+  name     = local.resource_group_name
   location = var.location
   tags     = local.tags
 }
@@ -50,6 +50,7 @@ resource "azurerm_resource_group" "main" {
 locals {
   name               = var.name
   location           = var.location
+  resource_group_name = var.resource_group_name != "" ? var.resource_group_name : "${var.name}-rg"
   resource_group     = azurerm_resource_group.main.name
   kata_namespace     = "kata-system"
   openclaw_namespace = "openclaw"

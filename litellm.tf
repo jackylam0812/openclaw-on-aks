@@ -78,7 +78,7 @@ resource "helm_release" "litellm" {
 
   set {
     name  = "proxy_config.model_list[0].litellm_params.api_base"
-    value = azurerm_cognitive_account.openai.endpoint
+    value = azurerm_ai_services.foundry.endpoint
   }
 
   set {
@@ -104,6 +104,7 @@ resource "helm_release" "litellm" {
     azurerm_federated_identity_credential.litellm,
     azurerm_cognitive_deployment.gpt54,
     azurerm_role_assignment.litellm_openai_scoped,
+    azurerm_ai_foundry_project.main,
   ]
 }
 
