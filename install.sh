@@ -221,6 +221,93 @@ echo "Waiting for cluster nodes to be ready..."
 kubectl wait --for=condition=Ready nodes --all --timeout=300s
 
 #---------------------------------------------------------------
+# Deploy Portals
+#---------------------------------------------------------------
+deploy_portals() {
+  echo ""
+  echo "Building and deploying portals..."
+
+  # Get ACR name from terraform output
+  ACR_NAME=$(terraform output -raw acr_login_server 2>/dev/null | cut -d. -f1)
+
+  # Generate JWT secret
+  JWT_SECRET=$(openssl rand -hex 32)
+
+  # az acr login
+  az acr login --name "$ACR_NAME"
+
+  # Build and push images
+  echo "Building portal images..."
+  docker build -f portals/api/Dockerfile -t "${ACR_NAME}.azurecr.io/openclaw-portal-api:latest" portals/api/
+  docker push "${ACR_NAME}.azurecr.io/openclaw-portal-api:latest"
+
+  docker build -f portals/admin/Dockerfile -t "${ACR_NAME}.azurecr.io/openclaw-admin-portal:latest" portals/admin/
+  docker push "${ACR_NAME}.azurecr.io/openclaw-admin-portal:latest"
+
+  docker build -f portals/customer/Dockerfile -t "${ACR_NAME}.azurecr.io/openclaw-customer-portal:latest" portals/customer/
+  docker push "${ACR_NAME}.azurecr.io/openclaw-customer-portal:latest"
+
+  # Apply K8s manifests (substitute image placeholders)
+  PORTAL_API_IMAGE="${ACR_NAME}.azurecr.io/openclaw-portal-api:latest"
+  ADMIN_IMAGE="${ACR_NAME}.azurecr.io/openclaw-admin-portal:latest"
+  CUSTOMER_IMAGE="${ACR_NAME}.azurecr.io/openclaw-customer-portal:latest"
+
+  # Apply namespace + pvc first
+  kubectl apply -f portals/k8s/namespace.yaml
+  kubectl apply -f portals/k8s/pvc.yaml
+
+  # Apply deployments with image substitution
+  sed "s|PORTAL_API_IMAGE|$PORTAL_API_IMAGE|g; s|JWT_SECRET_VALUE|$JWT_SECRET|g" \
+    portals/k8s/api-deployment.yaml | kubectl apply -f -
+
+  sed "s|ADMIN_PORTAL_IMAGE|$ADMIN_IMAGE|g; s|PORTAL_API_URL|http://portal-api.portals.svc.cluster.local:3000|g" \
+    portals/k8s/admin-portal-deployment.yaml | kubectl apply -f -
+
+  sed "s|CUSTOMER_PORTAL_IMAGE|$CUSTOMER_IMAGE|g; s|PORTAL_API_URL|http://portal-api.portals.svc.cluster.local:3000|g" \
+    portals/k8s/customer-portal-deployment.yaml | kubectl apply -f -
+
+  # Install nginx ingress controller if not present
+  kubectl get ns ingress-nginx >/dev/null 2>&1 || \
+    helm repo add ingress-nginx https://kubernetes.github.io/ingress-nginx && \
+    helm repo update && \
+    helm install ingress-nginx ingress-nginx/ingress-nginx \
+      --namespace ingress-nginx --create-namespace \
+      --set controller.service.type=LoadBalancer
+
+  # Apply ingress
+  kubectl apply -f portals/k8s/ingress.yaml
+
+  # Wait for pods
+  echo "Waiting for portal pods..."
+  kubectl wait --for=condition=Ready pods --all -n portals --timeout=300s
+
+  # Get ingress IP
+  echo "Waiting for Ingress IP..."
+  for i in {1..30}; do
+    INGRESS_IP=$(kubectl get svc -n ingress-nginx ingress-nginx-controller \
+      -o jsonpath="{.status.loadBalancer.ingress[0].ip}" 2>/dev/null)
+    [ -n "$INGRESS_IP" ] && break
+    sleep 10
+  done
+
+  echo ""
+  echo "=========================================="
+  echo "Portals deployed successfully!"
+  echo "=========================================="
+  echo ""
+  echo "Admin Portal:    http://${INGRESS_IP}/admin"
+  echo "Customer Portal: http://${INGRESS_IP}/app"
+  echo "API:             http://${INGRESS_IP}/api"
+  echo ""
+  echo "Default admin credentials:"
+  echo "  Email:    admin@openclaw.ai"
+  echo "  Password: Admin@123"
+  echo ""
+}
+
+deploy_portals
+
+#---------------------------------------------------------------
 # Done
 #---------------------------------------------------------------
 FOUNDRY_ENDPOINT=$(terraform output -raw foundry_endpoint 2>/dev/null || echo "(see terraform output)")

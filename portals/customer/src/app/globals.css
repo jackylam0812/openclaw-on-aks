@@ -1,0 +1,62 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
+
+:root {
+  --bg: #0a0a0a;
+  --surface: #111111;
+  --border: rgba(255, 255, 255, 0.08);
+  --glass: rgba(255, 255, 255, 0.03);
+  --accent: #7c3aed;
+  --accent-light: #a78bfa;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  background: var(--bg);
+  color: #e5e5e5;
+  font-family: 'Inter', system-ui, sans-serif;
+}
+
+::-webkit-scrollbar { width: 6px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.1); border-radius: 3px; }
+::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,0.2); }
+
+/* Markdown content styling */
+.prose-dark {
+  color: #d1d5db;
+}
+.prose-dark h1, .prose-dark h2, .prose-dark h3 {
+  color: #f3f4f6;
+  margin-top: 1em;
+  margin-bottom: 0.5em;
+}
+.prose-dark code {
+  background: rgba(255, 255, 255, 0.06);
+  padding: 0.15em 0.35em;
+  border-radius: 4px;
+  font-size: 0.9em;
+}
+.prose-dark pre {
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  border-radius: 8px;
+  padding: 1em;
+  overflow-x: auto;
+}
+.prose-dark pre code {
+  background: none;
+  padding: 0;
+}
+.prose-dark ul, .prose-dark ol {
+  padding-left: 1.5em;
+}
+.prose-dark a {
+  color: #a78bfa;
+}
