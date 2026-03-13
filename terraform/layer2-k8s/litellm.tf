@@ -23,6 +23,7 @@ resource "helm_release" "litellm" {
   set {
     name  = "serviceAccount.create"
     value = "false"
+    type  = "string"
   }
 
   set {
@@ -35,6 +36,7 @@ resource "helm_release" "litellm" {
   set {
     name  = "podLabels.azure\\.workload\\.identity/use"
     value = "true"
+    type  = "string"
   }
 
   # Use latest stable image
@@ -47,6 +49,7 @@ resource "helm_release" "litellm" {
   set {
     name  = "db.deployStandalone"
     value = "true"
+    type  = "string"
   }
 
   set_sensitive {
@@ -90,6 +93,7 @@ resource "helm_release" "litellm" {
   set {
     name  = "serviceMonitor.enabled"
     value = "false"
+    type  = "string"
   }
 
   depends_on = [
