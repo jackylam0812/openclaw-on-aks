@@ -2,33 +2,26 @@
 # LiteLLM Proxy - Azure OpenAI Backend
 #---------------------------------------------------------------
 
-resource "kubernetes_service_account_v1" "litellm" {
-  metadata {
-    name      = "litellm"
-    namespace = kubernetes_namespace_v1.litellm.metadata[0].name
-    annotations = {
-      "azure.workload.identity/client-id" = local.layer1.litellm_managed_identity_client_id
-    }
-    labels = {
-      "azure.workload.identity/use" = "true"
-    }
-  }
-}
-
 resource "helm_release" "litellm" {
   name      = "litellm"
   chart     = "oci://ghcr.io/berriai/litellm-helm"
   namespace = kubernetes_namespace_v1.litellm.metadata[0].name
 
+  # Let Helm manage the ServiceAccount; inject workload identity via annotations
   set {
     name  = "serviceAccount.create"
-    value = "false"
+    value = "true"
     type  = "string"
   }
 
   set {
     name  = "serviceAccount.name"
-    value = kubernetes_service_account_v1.litellm.metadata[0].name
+    value = "litellm"
+  }
+
+  set {
+    name  = "serviceAccount.annotations.azure\\.workload\\.identity/client-id"
+    value = local.layer1.litellm_managed_identity_client_id
   }
 
   # Inject Workload Identity label so AKS mutating webhook injects
