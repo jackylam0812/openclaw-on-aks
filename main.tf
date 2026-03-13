@@ -54,9 +54,13 @@ locals {
   kata_namespace     = "kata-system"
   openclaw_namespace = "openclaw"
 
-  tags = merge(var.tags, {
-    Blueprint  = local.name
-    GithubRepo = "github.com/jackylam0812/openclaw-on-aks"
-    Workload   = "openclaw-kata"
-  })
+  tags = merge(
+    var.tags,
+    {
+      Blueprint  = local.name
+      GithubRepo = "github.com/jackylam0812/openclaw-on-aks"
+      Workload   = "openclaw-kata"
+    },
+    var.microsoft_internal ? { SecurityControl = "Ignore" } : {}
+  )
 }

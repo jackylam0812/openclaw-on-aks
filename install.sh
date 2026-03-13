@@ -5,6 +5,7 @@ set -e
 # Default values
 LOCATION="${AZURE_LOCATION:-southeastasia}"
 CLUSTER_NAME="${CLUSTER_NAME:-openclaw-kata-aks}"
+MICROSOFT_INTERNAL=false
 
 # Parse command line arguments
 while [[ $# -gt 0 ]]; do
@@ -17,17 +18,23 @@ while [[ $# -gt 0 ]]; do
       CLUSTER_NAME="$2"
       shift 2
       ;;
+    --microsoft-internal)
+      MICROSOFT_INTERNAL=true
+      shift
+      ;;
     --help)
       echo "Usage: $0 [OPTIONS]"
       echo ""
       echo "Options:"
       echo "  --location LOCATION      Azure region (default: southeastasia)"
       echo "  --cluster-name NAME      AKS cluster name (default: openclaw-kata-aks)"
+      echo "  --microsoft-internal     Mark as Microsoft internal subscription (adds SecurityControl=Ignore tag)"
       echo "  --help                   Show this help message"
       echo ""
       echo "Examples:"
       echo "  $0 --location westus2"
       echo "  $0 --location eastus --cluster-name my-openclaw"
+      echo "  $0 --microsoft-internal"
       exit 0
       ;;
     *)
@@ -61,13 +68,33 @@ az account show >/dev/null 2>&1 || {
 SUBSCRIPTION_ID=$(az account show --query id -o tsv)
 echo "✓ Logged in to Azure (Subscription: $SUBSCRIPTION_ID)"
 
+# Ask if this is a Microsoft internal subscription (unless already set via flag)
+if [ "$MICROSOFT_INTERNAL" = "false" ]; then
+  echo ""
+  read -p "Is this a Microsoft internal subscription? (yes/no): " ms_internal_answer
+  if [ "$ms_internal_answer" = "yes" ] || [ "$ms_internal_answer" = "y" ]; then
+    MICROSOFT_INTERNAL=true
+  fi
+fi
+
+if [ "$MICROSOFT_INTERNAL" = "true" ]; then
+  echo "✓ Microsoft internal subscription detected — SecurityControl=Ignore tag will be applied to all resources"
+fi
+echo ""
+
 # Initialize Terraform
 echo "Initializing Terraform..."
 terraform init
 
+# Build Terraform var flags
+TF_VARS="-var=location=$LOCATION -var=name=$CLUSTER_NAME"
+if [ "$MICROSOFT_INTERNAL" = "true" ]; then
+  TF_VARS="$TF_VARS -var=microsoft_internal=true"
+fi
+
 # Plan
 echo "Planning infrastructure..."
-terraform plan -var="location=$LOCATION" -var="name=$CLUSTER_NAME"
+terraform plan $TF_VARS
 
 # Apply
 echo "Deploying infrastructure..."
@@ -77,7 +104,7 @@ if [ "$confirm" != "yes" ]; then
     exit 0
 fi
 
-terraform apply -auto-approve -var="location=$LOCATION" -var="name=$CLUSTER_NAME"
+terraform apply -auto-approve $TF_VARS
 
 # Configure kubectl
 echo "Configuring kubectl..."

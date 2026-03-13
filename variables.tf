@@ -59,6 +59,12 @@ variable "azure_openai_api_key" {
   sensitive   = true
 }
 
+variable "microsoft_internal" {
+  description = "Set to true if deploying in a Microsoft internal subscription. Adds SecurityControl=Ignore tag to all resources."
+  type        = bool
+  default     = false
+}
+
 variable "tags" {
   description = "Tags to apply to all resources"
   type        = map(string)
