@@ -36,6 +36,10 @@ while [[ $# -gt 0 ]]; do
       MICROSOFT_INTERNAL=true
       shift
       ;;
+    --yes|-y)
+      AUTO_CONFIRM=true
+      shift
+      ;;
     --help)
       echo "Usage: $0 [OPTIONS]"
       echo ""
@@ -183,10 +187,12 @@ echo "  Foundry region: $FOUNDRY_LOCATION (gpt-5.4)"
 echo "  MS internal   : $MICROSOFT_INTERNAL"
 echo "────────────────────────────────────────────────────────"
 echo ""
-read -p "Proceed with deployment? (yes/no): " confirm
-if [ "$confirm" != "yes" ] && [ "$confirm" != "y" ]; then
-  echo "Deployment cancelled."
-  exit 0
+if [ "${AUTO_CONFIRM:-false}" != "true" ]; then
+  read -p "Proceed with deployment? (yes/no): " confirm
+  if [ "$confirm" != "yes" ] && [ "$confirm" != "y" ]; then
+    echo "Deployment cancelled."
+    exit 0
+  fi
 fi
 
 #---------------------------------------------------------------
