@@ -7,7 +7,7 @@ variable "name" {
 variable "location" {
   description = "Azure region"
   type        = string
-  default     = "eastus2"
+  default     = "southeastasia"
 }
 
 variable "kubernetes_version" {
@@ -25,13 +25,13 @@ variable "vnet_cidr" {
 variable "system_node_vm_size" {
   description = "VM size for the system node pool"
   type        = string
-  default     = "Standard_D4s_v5"
+  default     = "Standard_D4as_v7"
 }
 
 variable "kata_node_vm_size" {
   description = "VM size for Kata node pool (must support nested virtualization)"
   type        = string
-  default     = "Standard_D4s_v3"
+  default     = "Standard_D4as_v7"
 }
 
 variable "kata_node_min_count" {

@@ -3,7 +3,7 @@
 set -e
 
 # Default values
-LOCATION="${AZURE_LOCATION:-eastus2}"
+LOCATION="${AZURE_LOCATION:-southeastasia}"
 CLUSTER_NAME="${CLUSTER_NAME:-openclaw-kata-aks}"
 
 # Parse command line arguments
@@ -21,7 +21,7 @@ while [[ $# -gt 0 ]]; do
       echo "Usage: $0 [OPTIONS]"
       echo ""
       echo "Options:"
-      echo "  --location LOCATION      Azure region (default: eastus2)"
+      echo "  --location LOCATION      Azure region (default: southeastasia)"
       echo "  --cluster-name NAME      AKS cluster name (default: openclaw-kata-aks)"
       echo "  --help                   Show this help message"
       echo ""

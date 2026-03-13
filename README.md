@@ -141,7 +141,7 @@ AZURE_LOCATION=westus2 ./install.sh
 ```
 
 **Available options:**
-- `--location LOCATION` - Azure region (default: eastus2)
+- `--location LOCATION` - Azure region (default: southeastasia)
 - `--cluster-name NAME` - AKS cluster name (default: openclaw-kata-aks)
 - `--help` - Show help message
 
@@ -161,7 +161,7 @@ After successful deployment, Terraform will display:
 ```
 Outputs:
 
-cluster_endpoint = "https://openclaw-kata-aks-xxxxx.hcp.eastus2.azmk8s.io:443"
+cluster_endpoint = "https://openclaw-kata-aks-xxxxx.hcp.southeastasia.azmk8s.io:443"
 cluster_name = "openclaw-kata-aks"
 configure_kubectl = "az aks get-credentials --resource-group openclaw-kata-aks-rg --name openclaw-kata-aks"
 resource_group = "openclaw-kata-aks-rg"
@@ -174,7 +174,7 @@ openclaw_namespace = "openclaw"
 This deployment creates:
 
 **Infrastructure:**
-- AKS cluster (v1.31) with system node pool (Standard_D4s_v5, 1-3 nodes)
+- AKS cluster (v1.31) with system node pool (Standard_D4as_v7, 1-3 nodes)
 - VNet with 3 subnets (system nodes, Kata nodes, pods), NAT Gateway
 - Azure Disk CSI driver with default Premium SSD StorageClass
 - Azure Files CSI driver with Premium StorageClass
@@ -183,7 +183,7 @@ This deployment creates:
 
 **Compute & Runtime:**
 - Kata Containers runtime (KataMshvVmIsolation) on nested-virtualization capable VMs
-- Kata node pool with autoscaling (Standard_D4s_v3, 0-10 nodes)
+- Kata node pool with autoscaling (Standard_D4as_v7, 0-10 nodes)
 - Agent sandbox controller with CRDs
 
 **AI & Proxy:**
@@ -641,7 +641,7 @@ az group delete --name openclaw-kata-aks-rg --yes --no-wait
 ## Cost Optimization
 
 - **Kata node pool** scales to zero when no sandboxes are running
-- **System node pool** (Standard_D4s_v5) runs continuously
+- **System node pool** (Standard_D4as_v7) runs continuously
 - **Azure Disk Premium** charged per provisioned size
 - **LiteLLM PostgreSQL** uses Azure Disk storage
 - **Azure OpenAI** charges per token (input/output)
