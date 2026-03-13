@@ -24,7 +24,7 @@ resource "azurerm_storage_account" "foundry" {
 # Key Vault (required by AI Foundry Hub)
 #---------------------------------------------------------------
 resource "azurerm_key_vault" "foundry" {
-  name                       = substr(replace("${var.name}-fkv", "-", ""), 0, 24)
+  name                       = substr(replace("${var.name}-fkv2", "-", ""), 0, 24)
   location                   = azurerm_resource_group.foundry.location
   resource_group_name        = azurerm_resource_group.foundry.name
   tenant_id                  = data.azurerm_client_config.current.tenant_id
