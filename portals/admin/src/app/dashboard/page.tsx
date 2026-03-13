@@ -1,37 +1,31 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { Users, Server, Zap, Cpu } from 'lucide-react';
+import { Users, Server, Box, Cpu } from 'lucide-react';
 import AppLayout from '@/components/layout/app-layout';
-import { getStats } from '@/lib/api';
+import { getClusterOverview } from '@/lib/api';
 
-interface Stats {
+interface ClusterOverview {
   totalUsers: number;
-  clusterUptime: string;
-  tokenUsageToday: number;
-  activeModels: number;
+  activeSandboxes: number;
+  nodeCount: number;
+  totalPods: number;
+  openclawPods: number;
+  nodes: any[];
 }
 
 const statCards = [
-  { key: 'totalUsers', label: 'Total Users', icon: Users, gradient: 'from-blue-500 to-cyan-500', format: (v: number) => String(v) },
-  { key: 'clusterUptime', label: 'Cluster Uptime', icon: Server, gradient: 'from-green-500 to-emerald-500', format: (v: string) => v },
-  { key: 'tokenUsageToday', label: 'Token Usage Today', icon: Zap, gradient: 'from-purple-500 to-violet-500', format: (v: number) => v.toLocaleString() },
-  { key: 'activeModels', label: 'Active Models', icon: Cpu, gradient: 'from-orange-500 to-amber-500', format: (v: number) => String(v) },
+  { key: 'totalUsers', label: 'Total Users', icon: Users, gradient: 'from-blue-500 to-cyan-500' },
+  { key: 'activeSandboxes', label: 'Active Sandboxes', icon: Box, gradient: 'from-green-500 to-emerald-500' },
+  { key: 'nodeCount', label: 'Cluster Nodes', icon: Server, gradient: 'from-purple-500 to-violet-500' },
+  { key: 'totalPods', label: 'Running Pods', icon: Cpu, gradient: 'from-orange-500 to-amber-500' },
 ] as const;
 
-const recentActivity = [
-  { text: 'New user registered: user@example.com', time: '2 minutes ago' },
-  { text: 'Model gpt-5.4 health check passed', time: '5 minutes ago' },
-  { text: 'Cluster auto-scaled to 3 nodes', time: '12 minutes ago' },
-  { text: 'API key generated for production', time: '1 hour ago' },
-  { text: 'Database backup completed', time: '3 hours ago' },
-];
-
 export default function DashboardPage() {
-  const [stats, setStats] = useState<Stats | null>(null);
+  const [overview, setOverview] = useState<ClusterOverview | null>(null);
 
   useEffect(() => {
-    getStats().then(setStats).catch(() => {});
+    getClusterOverview().then(setOverview).catch(() => {});
   }, []);
 
   return (
@@ -44,7 +38,7 @@ export default function DashboardPage() {
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
         {statCards.map((card) => {
           const Icon = card.icon;
-          const value = stats ? (stats as any)[card.key] : '—';
+          const value = overview ? (overview as any)[card.key] : '—';
           return (
             <div
               key={card.key}
@@ -57,24 +51,36 @@ export default function DashboardPage() {
                 </div>
               </div>
               <p className="text-2xl font-semibold text-gray-100">
-                {stats ? card.format(value as never) : '—'}
+                {overview ? String(value) : '—'}
               </p>
             </div>
           );
         })}
       </div>
 
-      <div className="bg-white/[0.03] border border-white/[0.06] rounded-xl p-5 backdrop-blur-sm">
-        <h2 className="text-sm font-medium text-gray-300 mb-4">Recent Activity</h2>
-        <div className="space-y-3">
-          {recentActivity.map((item, i) => (
-            <div key={i} className="flex items-center justify-between py-2 border-b border-white/[0.04] last:border-0">
-              <span className="text-sm text-gray-400">{item.text}</span>
-              <span className="text-xs text-gray-600 shrink-0 ml-4">{item.time}</span>
-            </div>
-          ))}
+      {overview && overview.nodes.length > 0 && (
+        <div className="bg-white/[0.03] border border-white/[0.06] rounded-xl p-5 backdrop-blur-sm">
+          <h2 className="text-sm font-medium text-gray-300 mb-4">Cluster Nodes</h2>
+          <div className="space-y-3">
+            {overview.nodes.map((node: any, i: number) => (
+              <div key={i} className="flex items-center justify-between py-2 border-b border-white/[0.04] last:border-0">
+                <span className="text-sm text-gray-200">{node.name}</span>
+                <div className="flex items-center gap-3">
+                  <span className="text-xs text-gray-500">CPU: {node.cpu}</span>
+                  <span className="text-xs text-gray-500">Mem: {node.memory}</span>
+                  <span className={`text-xs px-2 py-0.5 rounded-full ${
+                    node.status === 'Ready'
+                      ? 'bg-green-500/10 text-green-400'
+                      : 'bg-yellow-500/10 text-yellow-400'
+                  }`}>
+                    {node.status}
+                  </span>
+                </div>
+              </div>
+            ))}
+          </div>
         </div>
-      </div>
+      )}
     </AppLayout>
   );
 }

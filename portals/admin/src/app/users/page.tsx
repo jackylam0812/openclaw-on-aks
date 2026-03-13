@@ -10,6 +10,7 @@ interface User {
   email: string;
   role: string;
   created_at: string;
+  sandbox_status: string | null;
 }
 
 export default function UsersPage() {
@@ -33,13 +34,14 @@ export default function UsersPage() {
               <th className="text-left px-4 py-3 text-gray-500 font-medium">Name</th>
               <th className="text-left px-4 py-3 text-gray-500 font-medium">Email</th>
               <th className="text-left px-4 py-3 text-gray-500 font-medium">Role</th>
+              <th className="text-left px-4 py-3 text-gray-500 font-medium">Sandbox</th>
               <th className="text-left px-4 py-3 text-gray-500 font-medium">Joined</th>
             </tr>
           </thead>
           <tbody>
             {users.length === 0 ? (
               <tr>
-                <td colSpan={4} className="px-4 py-8 text-center text-gray-600">
+                <td colSpan={5} className="px-4 py-8 text-center text-gray-600">
                   No users found
                 </td>
               </tr>
@@ -58,6 +60,27 @@ export default function UsersPage() {
                     >
                       {user.role}
                     </span>
+                  </td>
+                  <td className="px-4 py-3">
+                    {user.sandbox_status ? (
+                      <span
+                        className={`text-xs px-2 py-0.5 rounded-full ${
+                          user.sandbox_status === 'running'
+                            ? 'bg-green-500/10 text-green-400'
+                            : user.sandbox_status === 'creating'
+                              ? 'bg-blue-500/10 text-blue-400'
+                              : user.sandbox_status === 'provisioning'
+                                ? 'bg-purple-500/10 text-purple-400'
+                                : user.sandbox_status === 'failed'
+                                  ? 'bg-red-500/10 text-red-400'
+                                  : 'bg-gray-500/10 text-gray-400'
+                        }`}
+                      >
+                        {user.sandbox_status}
+                      </span>
+                    ) : (
+                      <span className="text-xs text-gray-600">—</span>
+                    )}
                   </td>
                   <td className="px-4 py-3 text-gray-500">
                     {new Date(user.created_at).toLocaleDateString()}

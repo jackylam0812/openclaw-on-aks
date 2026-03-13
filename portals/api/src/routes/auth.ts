@@ -3,6 +3,7 @@ import bcrypt from 'bcryptjs';
 import { v4 as uuid } from 'uuid';
 import db from '../db/client.js';
 import { signToken } from '../middleware/auth.js';
+import { provisionSandbox } from '../services/sandbox.js';
 
 export default async function authRoutes(app: FastifyInstance) {
   app.post('/auth/login', async (request, reply) => {
@@ -32,6 +33,16 @@ export default async function authRoutes(app: FastifyInstance) {
     db.prepare('INSERT INTO users (id, email, password_hash, name, role) VALUES (?, ?, ?, ?, ?)').run(
       id, email, hash, name, 'user'
     );
+
+    // Provision sandbox for new user
+    const sandboxId = uuid();
+    db.prepare('INSERT INTO sandboxes (id, user_id, status) VALUES (?, ?, ?)').run(
+      sandboxId, id, 'provisioning'
+    );
+    provisionSandbox(id, email).catch((err) => {
+      console.error('Background sandbox provisioning error:', err);
+    });
+
     const token = signToken({ userId: id, email, role: 'user' });
     return { token, user: { id, email, name, role: 'user' } };
   });

@@ -64,3 +64,13 @@ export async function getUsers() {
   const res = await authFetch('/admin/users');
   return res.json();
 }
+
+export async function getSandboxes() {
+  const res = await authFetch('/admin/sandboxes');
+  return res.json();
+}
+
+export async function getClusterOverview() {
+  const res = await authFetch('/admin/cluster/overview');
+  return res.json();
+}

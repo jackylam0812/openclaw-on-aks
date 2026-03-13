@@ -18,10 +18,11 @@ export default async function integrationRoutes(app: FastifyInstance) {
     const user = (request as any).user;
     const { appId, appSecret } = request.body as { appId: string; appSecret: string };
     const id = uuid();
+    const webhookUrl = `${process.env.API_BASE_URL || 'http://localhost:3000'}/webhooks/feishu/${id}`;
     db.prepare('INSERT INTO integrations (id, user_id, type, config, status) VALUES (?, ?, ?, ?, ?)').run(
-      id, user.userId, 'feishu', JSON.stringify({ appId, appSecret }), 'connected'
+      id, user.userId, 'feishu', JSON.stringify({ appId, appSecret, webhookUrl }), 'connected'
     );
-    return { id, type: 'feishu', status: 'connected' };
+    return { id, type: 'feishu', status: 'connected', webhookUrl };
   });
 
   app.post('/integrations/telegram', async (request: FastifyRequest) => {

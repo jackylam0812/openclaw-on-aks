@@ -3,7 +3,7 @@
 import { useEffect, useState, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import { Plus, LogOut, MessageSquare } from 'lucide-react';
-import { getToken, clearToken, getChatHistory, getConversationMessages, sendMessage } from '@/lib/api';
+import { getToken, clearToken, getChatHistory, getConversationMessages, sendMessage, getSandboxStatus } from '@/lib/api';
 import MessageBubble from '@/components/chat/message-bubble';
 import InputBar from '@/components/chat/input-bar';
 import TypingIndicator from '@/components/chat/typing-indicator';
@@ -29,6 +29,7 @@ export default function ChatPage() {
   const [activeConvId, setActiveConvId] = useState<string | null>(null);
   const [messages, setMessages] = useState<Message[]>([]);
   const [isTyping, setIsTyping] = useState(false);
+  const [sandboxStatus, setSandboxStatus] = useState<string>('none');
 
   useEffect(() => {
     if (!getToken()) {
@@ -36,7 +37,15 @@ export default function ChatPage() {
       return;
     }
     loadConversations();
+    loadSandboxStatus();
   }, [router]);
+
+  const loadSandboxStatus = async () => {
+    try {
+      const data = await getSandboxStatus();
+      setSandboxStatus(data.status || 'none');
+    } catch {}
+  };
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -164,6 +173,29 @@ export default function ChatPage() {
             gpt-5.4
           </span>
         </header>
+
+        {/* Sandbox Status Banner */}
+        {sandboxStatus !== 'none' && sandboxStatus !== 'running' && (
+          <div className={`px-4 py-2 text-xs flex items-center gap-2 shrink-0 ${
+            sandboxStatus === 'failed'
+              ? 'bg-red-500/10 text-red-400 border-b border-red-500/20'
+              : 'bg-purple-500/10 text-purple-400 border-b border-purple-500/20'
+          }`}>
+            {(sandboxStatus === 'provisioning' || sandboxStatus === 'creating') && (
+              <>
+                <div className="w-3 h-3 border-2 border-purple-400 border-t-transparent rounded-full animate-spin" />
+                Setting up your environment...
+              </>
+            )}
+            {sandboxStatus === 'failed' && 'Environment setup failed'}
+          </div>
+        )}
+        {sandboxStatus === 'running' && (
+          <div className="px-4 py-2 text-xs flex items-center gap-2 shrink-0 bg-green-500/10 text-green-400 border-b border-green-500/20">
+            <div className="w-2 h-2 rounded-full bg-green-400" />
+            Your environment is ready
+          </div>
+        )}
 
         {/* Messages */}
         <div className="flex-1 overflow-y-auto px-6 py-6">

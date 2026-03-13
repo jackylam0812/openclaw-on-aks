@@ -31,3 +31,14 @@ CREATE TABLE IF NOT EXISTS integrations (
   status TEXT DEFAULT 'connected',
   created_at DATETIME DEFAULT CURRENT_TIMESTAMP
 );
+
+CREATE TABLE IF NOT EXISTS sandboxes (
+  id TEXT PRIMARY KEY,
+  user_id TEXT UNIQUE REFERENCES users(id),
+  pod_name TEXT,
+  namespace TEXT DEFAULT 'openclaw',
+  status TEXT DEFAULT 'provisioning',
+  endpoint TEXT,
+  created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+  ready_at DATETIME
+);

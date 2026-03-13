@@ -4,3 +4,5 @@ terraform-states/
 **/*.tfstate.backup
 **/.terraform.lock.hcl
 .platform-secrets
+portals/api/node_modules/
+portals/api/dist/

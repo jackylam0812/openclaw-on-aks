@@ -32,8 +32,37 @@ export default async function adminRoutes(app: FastifyInstance) {
 
   app.get('/admin/users', async () => {
     const users = db.prepare(
-      'SELECT id, email, name, role, created_at FROM users ORDER BY created_at DESC'
+      'SELECT u.id, u.email, u.name, u.role, u.created_at, s.status as sandbox_status FROM users u LEFT JOIN sandboxes s ON u.id = s.user_id ORDER BY u.created_at DESC'
     ).all();
     return users;
+  });
+
+  app.get('/admin/sandboxes', async () => {
+    const sandboxes = db.prepare(
+      'SELECT s.*, u.email, u.name as user_name FROM sandboxes s JOIN users u ON s.user_id = u.id ORDER BY s.created_at DESC'
+    ).all();
+    return sandboxes;
+  });
+
+  app.get('/admin/cluster/overview', async () => {
+    let nodes: any[] = [];
+    let pods: any[] = [];
+    try {
+      nodes = await getNodes();
+    } catch {}
+    try {
+      pods = await getPods();
+    } catch {}
+    const openclawPods = pods.filter((p: any) => p.namespace === 'openclaw');
+    const totalUsers = (db.prepare('SELECT COUNT(*) as count FROM users').get() as any).count;
+    const activeSandboxes = (db.prepare("SELECT COUNT(*) as count FROM sandboxes WHERE status IN ('running', 'creating')").get() as any).count;
+    return {
+      totalUsers,
+      activeSandboxes,
+      nodeCount: nodes.length,
+      totalPods: pods.length,
+      openclawPods: openclawPods.length,
+      nodes,
+    };
   });
 }

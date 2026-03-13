@@ -95,3 +95,8 @@ export async function disconnectIntegration(id: string) {
   });
   return res.json();
 }
+
+export async function getSandboxStatus() {
+  const res = await authFetch('/sandbox/status');
+  return res.json();
+}
