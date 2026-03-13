@@ -57,7 +57,7 @@ export default function DashboardPage() {
                 </div>
               </div>
               <p className="text-2xl font-semibold text-gray-100">
-                {stats ? card.format(value) : '—'}
+                {stats ? card.format(value as never) : '—'}
               </p>
             </div>
           );
