@@ -44,7 +44,13 @@ function buildOpenClawConfig(channels: ChannelConfig = {}) {
       port: 18789,
       mode: 'local',
       bind: 'lan',
+      auth: { mode: 'token', token: LITELLM_API_KEY },
       controlUi: { dangerouslyAllowHostHeaderOriginFallback: true },
+      http: {
+        endpoints: {
+          chatCompletions: { enabled: true },
+        },
+      },
     },
   };
 

@@ -124,6 +124,7 @@ export default function IntegrationsPage() {
         onSelectConversation={(id) => router.push('/chat')}
         onNewChat={() => router.push('/chat')}
         userName={userName}
+        channels={connected}
       />
 
       {/* Main Content */}

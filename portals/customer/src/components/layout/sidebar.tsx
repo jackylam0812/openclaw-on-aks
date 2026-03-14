@@ -1,7 +1,7 @@
 'use client';
 
 import { usePathname, useRouter } from 'next/navigation';
-import { Plus, LogOut, MessageSquare, Plug, Bird } from 'lucide-react';
+import { Plus, LogOut, MessageSquare, Plug, Bird, Send, MessageCircle } from 'lucide-react';
 import { clearToken } from '@/lib/api';
 
 interface Conversation {
@@ -10,13 +10,26 @@ interface Conversation {
   updated_at: string;
 }
 
+interface ConnectedChannel {
+  id: string;
+  type: string;
+  status: string;
+}
+
 interface SidebarProps {
   conversations: Conversation[];
   activeConvId: string | null;
   onSelectConversation: (id: string) => void;
   onNewChat: () => void;
   userName: string;
+  channels?: ConnectedChannel[];
 }
+
+const channelMeta: Record<string, { label: string; Icon: typeof Bird; color: string }> = {
+  feishu: { label: 'Feishu', Icon: Bird, color: 'text-blue-400' },
+  telegram: { label: 'Telegram', Icon: Send, color: 'text-sky-400' },
+  slack: { label: 'Slack', Icon: MessageCircle, color: 'text-green-400' },
+};
 
 export default function Sidebar({
   conversations,
@@ -24,6 +37,7 @@ export default function Sidebar({
   onSelectConversation,
   onNewChat,
   userName,
+  channels = [],
 }: SidebarProps) {
   const router = useRouter();
   const pathname = usePathname();
@@ -96,20 +110,29 @@ export default function Sidebar({
           <p className="text-[10px] uppercase tracking-wider text-gray-600 px-3 mb-1">Channels</p>
         </div>
         <div className="px-3 pb-2 space-y-0.5">
+          {channels.map((ch) => {
+            const meta = channelMeta[ch.type];
+            if (!meta) return null;
+            const { label, Icon, color } = meta;
+            return (
+              <button
+                key={ch.id}
+                onClick={() => router.push('/integrations')}
+                className="w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm text-gray-400 hover:bg-white/[0.03] transition-colors"
+              >
+                <Icon size={16} className={color} />
+                {label}
+                <span className="ml-auto w-1.5 h-1.5 rounded-full bg-green-400" />
+              </button>
+            );
+          })}
           <button
             onClick={() => router.push('/integrations')}
             className={`w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm transition-colors ${
               isIntegrations
                 ? 'bg-white/[0.06] text-gray-200'
-                : 'text-gray-400 hover:bg-white/[0.03]'
+                : 'text-gray-500 hover:bg-white/[0.03]'
             }`}
-          >
-            <Bird size={16} className="text-blue-400" />
-            Feishu
-          </button>
-          <button
-            onClick={() => router.push('/integrations')}
-            className="w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm text-gray-500 hover:bg-white/[0.03] transition-colors"
           >
             <Plug size={16} />
             More Integrations

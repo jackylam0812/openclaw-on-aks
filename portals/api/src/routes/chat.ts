@@ -25,8 +25,8 @@ export default async function chatRoutes(app: FastifyInstance) {
       uuid(), convId, 'user', message
     );
 
-    // Forward to OpenClaw/LiteLLM
-    const reply = await forwardToOpenClaw(message, convId);
+    // Forward to user's OpenClaw sandbox gateway
+    const reply = await forwardToOpenClaw(user.userId, message, convId);
 
     // Save assistant reply
     db.prepare('INSERT INTO messages (id, conversation_id, role, content) VALUES (?, ?, ?, ?)').run(

@@ -3,7 +3,7 @@
 import { useEffect, useState, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import { MessageSquare } from 'lucide-react';
-import { getToken, getChatHistory, getConversationMessages, sendMessage, getSandboxStatus } from '@/lib/api';
+import { getToken, getChatHistory, getConversationMessages, sendMessage, getSandboxStatus, getIntegrations } from '@/lib/api';
 import MessageBubble from '@/components/chat/message-bubble';
 import InputBar from '@/components/chat/input-bar';
 import TypingIndicator from '@/components/chat/typing-indicator';
@@ -31,6 +31,7 @@ export default function ChatPage() {
   const [messages, setMessages] = useState<Message[]>([]);
   const [isTyping, setIsTyping] = useState(false);
   const [sandboxStatus, setSandboxStatus] = useState<string>('none');
+  const [channels, setChannels] = useState<{ id: string; type: string; status: string }[]>([]);
 
   useEffect(() => {
     if (!getToken()) {
@@ -39,12 +40,20 @@ export default function ChatPage() {
     }
     loadConversations();
     loadSandboxStatus();
+    loadChannels();
   }, [router]);
 
   const loadSandboxStatus = async () => {
     try {
       const data = await getSandboxStatus();
       setSandboxStatus(data.status || 'none');
+    } catch {}
+  };
+
+  const loadChannels = async () => {
+    try {
+      const data = await getIntegrations();
+      setChannels(data);
     } catch {}
   };
 
@@ -120,6 +129,7 @@ export default function ChatPage() {
         onSelectConversation={loadMessages}
         onNewChat={handleNewChat}
         userName={userName}
+        channels={channels}
       />
 
       {/* Main Chat Area */}
