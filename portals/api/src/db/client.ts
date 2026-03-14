@@ -23,13 +23,27 @@ const schema = readFileSync(join(__dirname, 'schema.sql'), 'utf-8');
 db.exec(schema);
 
 // Seed admin user if not exists
-const adminExists = db.prepare('SELECT id FROM users WHERE email = ?').get('admin@openclaw.ai');
+const adminExists = db.prepare('SELECT id FROM users WHERE email = ?').get('admin@openclaw.ai') as { id: string } | undefined;
 if (!adminExists) {
+  const adminId = uuid();
   const hash = bcrypt.hashSync('Admin@123', 10);
   db.prepare('INSERT INTO users (id, email, password_hash, name, role) VALUES (?, ?, ?, ?, ?)').run(
-    uuid(), 'admin@openclaw.ai', hash, 'Admin', 'admin'
+    adminId, 'admin@openclaw.ai', hash, 'Admin', 'admin'
   );
-  console.log('Seeded admin user: admin@openclaw.ai');
+  // Also create sandbox record for admin (provisioned on startup)
+  db.prepare('INSERT INTO sandboxes (id, user_id, status) VALUES (?, ?, ?)').run(
+    uuid(), adminId, 'provisioning'
+  );
+  console.log('Seeded admin user: admin@openclaw.ai (with sandbox)');
+} else {
+  // Ensure admin has a sandbox record (handles upgrades from older DBs)
+  const adminSandbox = db.prepare('SELECT id FROM sandboxes WHERE user_id = ?').get(adminExists.id);
+  if (!adminSandbox) {
+    db.prepare('INSERT INTO sandboxes (id, user_id, status) VALUES (?, ?, ?)').run(
+      uuid(), adminExists.id, 'provisioning'
+    );
+    console.log('Created missing sandbox record for admin user');
+  }
 }
 
 export default db;

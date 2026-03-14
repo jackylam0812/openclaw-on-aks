@@ -40,16 +40,6 @@ const integrationConfigs: IntegrationConfig[] = [
     ],
   },
   {
-    type: 'slack',
-    label: 'Slack',
-    emoji: '\uD83D\uDCAC',
-    description: 'Add OpenClaw as a Slack bot for your workspace.',
-    fields: [
-      { key: 'botToken', label: 'Bot Token', type: 'password', placeholder: 'xoxb-...' },
-      { key: 'appToken', label: 'App Token', type: 'password', placeholder: 'xapp-...' },
-    ],
-  },
-  {
     type: 'telegram',
     label: 'Telegram',
     emoji: '\u2708\uFE0F',

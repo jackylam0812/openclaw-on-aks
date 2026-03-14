@@ -267,9 +267,10 @@ deploy_portals() {
   ADMIN_IMAGE="${ACR_NAME}.azurecr.io/openclaw-admin-portal:latest"
   CUSTOMER_IMAGE="${ACR_NAME}.azurecr.io/openclaw-customer-portal:latest"
 
-  # Apply namespace + pvc first
+  # Apply namespace + pvc + RBAC first
   kubectl apply -f portals/k8s/namespace.yaml
   kubectl apply -f portals/k8s/pvc.yaml
+  kubectl apply -f portals/k8s/portal-api-rbac.yaml
 
   # Apply deployments with image substitution
   # Generate LiteLLM API key for portal-api
@@ -298,7 +299,8 @@ deploy_portals() {
   helm repo update
   helm upgrade --install ingress-nginx ingress-nginx/ingress-nginx \
     --namespace ingress-nginx --create-namespace \
-    --set controller.service.type=LoadBalancer
+    --set controller.service.type=LoadBalancer \
+    --set controller.service.externalTrafficPolicy=Local
 
   # Wait for ingress controller to be ready before applying ingress
   echo "Waiting for ingress-nginx controller to be ready..."
