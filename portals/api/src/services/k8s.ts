@@ -2,7 +2,7 @@ import { execSync } from 'child_process';
 
 function kubectl(args: string): string {
   try {
-    return execSync(`kubectl ${args}`, { encoding: 'utf-8', timeout: 10000 });
+    return execSync(`kubectl ${args}`, { encoding: 'utf-8', timeout: 30000 });
   } catch (e: any) {
     console.error('kubectl error:', e.message);
     throw new Error(`kubectl failed: ${e.message}`);
@@ -25,8 +25,9 @@ export async function getNodes() {
   }));
 }
 
-export async function getPods() {
-  const output = kubectl('get pods -A -o json');
+export async function getPods(namespace?: string) {
+  const nsArg = namespace ? `-n ${namespace}` : '-A';
+  const output = kubectl(`get pods ${nsArg} -o json`);
   const data = JSON.parse(output);
   return data.items.map((pod: any) => ({
     namespace: pod.metadata.namespace,

@@ -18,7 +18,7 @@ const statCards = [
   { key: 'totalUsers', label: 'Total Users', icon: Users, gradient: 'from-blue-500 to-cyan-500' },
   { key: 'activeSandboxes', label: 'Active Sandboxes', icon: Box, gradient: 'from-green-500 to-emerald-500' },
   { key: 'nodeCount', label: 'Cluster Nodes', icon: Server, gradient: 'from-purple-500 to-violet-500' },
-  { key: 'totalPods', label: 'Running Pods', icon: Cpu, gradient: 'from-orange-500 to-amber-500' },
+  { key: 'totalPods', label: 'Sandbox Pods', icon: Cpu, gradient: 'from-orange-500 to-amber-500' },
 ] as const;
 
 export default function DashboardPage() {

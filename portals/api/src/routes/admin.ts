@@ -46,22 +46,21 @@ export default async function adminRoutes(app: FastifyInstance) {
 
   app.get('/admin/cluster/overview', async () => {
     let nodes: any[] = [];
-    let pods: any[] = [];
+    let sandboxPods: any[] = [];
     try {
       nodes = await getNodes();
     } catch {}
     try {
-      pods = await getPods();
+      sandboxPods = await getPods('openclaw');
     } catch {}
-    const openclawPods = pods.filter((p: any) => p.namespace === 'openclaw');
+    const runningPods = sandboxPods.filter((p: any) => p.status === 'Running');
     const totalUsers = (db.prepare('SELECT COUNT(*) as count FROM users').get() as any).count;
     const activeSandboxes = (db.prepare("SELECT COUNT(*) as count FROM sandboxes WHERE status IN ('running', 'creating')").get() as any).count;
     return {
       totalUsers,
       activeSandboxes,
       nodeCount: nodes.length,
-      totalPods: pods.length,
-      openclawPods: openclawPods.length,
+      totalPods: runningPods.length,
       nodes,
     };
   });
