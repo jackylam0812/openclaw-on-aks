@@ -1,17 +1,21 @@
 const OPENCLAW_API_URL = process.env.OPENCLAW_API_URL || 'http://litellm.litellm.svc.cluster.local:4000';
+const LITELLM_API_KEY = process.env.LITELLM_API_KEY || 'sk-1234';
 
 export async function forwardToOpenClaw(message: string, conversationId: string): Promise<string> {
   try {
     const response = await fetch(`${OPENCLAW_API_URL}/v1/chat/completions`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${LITELLM_API_KEY}`,
+      },
       body: JSON.stringify({
         model: 'gpt-5.4',
         messages: [
           { role: 'system', content: 'You are OpenClaw, a helpful AI assistant.' },
           { role: 'user', content: message },
         ],
-        max_tokens: 2048,
+        max_completion_tokens: 2048,
       }),
     });
 

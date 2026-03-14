@@ -54,6 +54,11 @@ output "foundry_resource_group" {
   value = azurerm_resource_group.foundry.name
 }
 
+output "foundry_api_key" {
+  value     = azurerm_ai_services.foundry.primary_access_key
+  sensitive = true
+}
+
 output "litellm_db_password" {
   value     = random_password.litellm_db.result
   sensitive = true

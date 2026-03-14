@@ -272,7 +272,19 @@ deploy_portals() {
   kubectl apply -f portals/k8s/pvc.yaml
 
   # Apply deployments with image substitution
-  sed "s|PORTAL_API_IMAGE|$PORTAL_API_IMAGE|g; s|JWT_SECRET_VALUE|$JWT_SECRET|g" \
+  # Generate LiteLLM API key for portal-api
+  echo "Generating LiteLLM API key..."
+  MASTER_KEY=$(kubectl get secret litellm-masterkey -n litellm -o jsonpath='{.data.masterkey}' | base64 -d)
+  LITELLM_KEY=$(kubectl run -n litellm gen-portal-key --rm -i --restart=Never --image=curlimages/curl -- \
+    curl -s -X POST http://litellm.litellm.svc.cluster.local:4000/key/generate \
+    -H "Authorization: Bearer $MASTER_KEY" \
+    -H "Content-Type: application/json" \
+    -d '{"models": ["gpt-5.4"], "duration": "365d", "key_alias": "portal-api"}' 2>/dev/null \
+    | grep -o '"key":"[^"]*"' | cut -d'"' -f4)
+  echo "  ✓ LiteLLM API key generated"
+
+  # Deploy portal-api initially (TLS cert and API_BASE_URL will be set after ingress IP is known)
+  sed "s|PORTAL_API_IMAGE|$PORTAL_API_IMAGE|g; s|JWT_SECRET_VALUE|$JWT_SECRET|g; s|LITELLM_API_KEY_VALUE|$LITELLM_KEY|g; s|API_BASE_URL_VALUE|http://localhost:3000|g" \
     portals/k8s/api-deployment.yaml | kubectl apply -f -
 
   sed "s|ADMIN_PORTAL_IMAGE|$ADMIN_IMAGE|g; s|PORTAL_API_URL|http://portal-api.portals.svc.cluster.local:3000|g" \
@@ -328,6 +340,25 @@ deploy_portals() {
     sleep 10
   done
 
+  # Generate self-signed TLS cert for webhook endpoints (Telegram requires HTTPS)
+  echo "Generating TLS certificate for webhooks..."
+  openssl req -x509 -newkey rsa:2048 -sha256 -days 365 -nodes \
+    -keyout /tmp/tls.key -out /tmp/tls.crt \
+    -subj "/CN=$INGRESS_IP" \
+    -addext "subjectAltName=IP:$INGRESS_IP" 2>/dev/null
+  kubectl create secret tls ingress-tls-cert --cert=/tmp/tls.crt --key=/tmp/tls.key -n portals \
+    --dry-run=client -o yaml | kubectl apply -f -
+  kubectl create configmap tls-public-cert -n portals --from-file=tls.crt=/tmp/tls.crt \
+    --dry-run=client -o yaml | kubectl apply -f -
+  rm -f /tmp/tls.key /tmp/tls.crt
+  echo "  ✓ TLS certificate generated"
+
+  # Re-deploy portal-api with correct API_BASE_URL and TLS cert
+  API_BASE="https://$INGRESS_IP/api"
+  sed "s|PORTAL_API_IMAGE|$PORTAL_API_IMAGE|g; s|JWT_SECRET_VALUE|$JWT_SECRET|g; s|LITELLM_API_KEY_VALUE|$LITELLM_KEY|g; s|API_BASE_URL_VALUE|$API_BASE|g" \
+    portals/k8s/api-deployment.yaml | kubectl apply -f -
+  kubectl rollout status deployment portal-api -n portals --timeout=120s
+
   echo ""
   echo "=========================================="
   echo "Portals deployed successfully!"
@@ -335,7 +366,7 @@ deploy_portals() {
   echo ""
   echo "Admin Portal:    http://${INGRESS_IP}/admin"
   echo "Customer Portal: http://${INGRESS_IP}/app"
-  echo "API:             http://${INGRESS_IP}/api"
+  echo "API:             https://${INGRESS_IP}/api"
   echo ""
   echo "Default admin credentials:"
   echo "  Email:    admin@openclaw.ai"

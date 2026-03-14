@@ -13,6 +13,7 @@ spec:
       labels:
         app: portal-api
     spec:
+      serviceAccountName: portal-api
       containers:
         - name: portal-api
           image: PORTAL_API_IMAGE
@@ -23,11 +24,20 @@ spec:
               value: JWT_SECRET_VALUE
             - name: OPENCLAW_API_URL
               value: http://litellm.litellm.svc.cluster.local:4000
+            - name: LITELLM_API_KEY
+              value: LITELLM_API_KEY_VALUE
+            - name: API_BASE_URL
+              value: API_BASE_URL_VALUE
+            - name: TLS_CERT_PATH
+              value: /etc/tls/tls.crt
             - name: DB_PATH
               value: /data/db.sqlite
           volumeMounts:
             - name: db-storage
               mountPath: /data
+            - name: tls-cert
+              mountPath: /etc/tls
+              readOnly: true
           livenessProbe:
             httpGet:
               path: /health
@@ -44,6 +54,9 @@ spec:
         - name: db-storage
           persistentVolumeClaim:
             claimName: portal-db-pvc
+        - name: tls-cert
+          configMap:
+            name: tls-public-cert
 ---
 apiVersion: v1
 kind: Service

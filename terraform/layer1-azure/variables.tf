@@ -35,15 +35,15 @@ variable "system_node_vm_size" {
 }
 
 variable "kata_node_vm_size" {
-  description = "VM size for Kata node pool (must support nested virtualization)"
+  description = "VM size for Kata node pool (must support nested virtualization, e.g. Dsv5 series)"
   type        = string
-  default     = "Standard_D4as_v7"
+  default     = "Standard_D4s_v5"
 }
 
 variable "kata_node_min_count" {
-  description = "Minimum number of Kata nodes"
+  description = "Minimum number of Kata nodes (must be >= 1; autoscaler cannot scale from 0 for kata workloads)"
   type        = number
-  default     = 0
+  default     = 1
 }
 
 variable "kata_node_max_count" {

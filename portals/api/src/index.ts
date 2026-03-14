@@ -5,6 +5,7 @@ import adminRoutes from './routes/admin.js';
 import chatRoutes from './routes/chat.js';
 import integrationRoutes from './routes/integrations.js';
 import sandboxRoutes from './routes/sandbox.js';
+import webhookRoutes from './routes/webhooks.js';
 
 const app = Fastify({ logger: true });
 
@@ -15,6 +16,7 @@ await app.register(adminRoutes);
 await app.register(chatRoutes);
 await app.register(integrationRoutes);
 await app.register(sandboxRoutes);
+await app.register(webhookRoutes);
 
 app.get('/health', async () => ({ status: 'ok' }));
 

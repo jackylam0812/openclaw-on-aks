@@ -77,6 +77,7 @@ resource "azurerm_kubernetes_cluster_node_pool" "kata" {
   min_count            = var.kata_node_min_count
   max_count            = var.kata_node_max_count
   os_disk_size_gb      = 200
+  workload_runtime     = "KataMshvVmIsolation"
 
   node_labels = {
     "workload-type"                  = "kata"

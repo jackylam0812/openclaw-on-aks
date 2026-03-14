@@ -76,6 +76,12 @@ resource "helm_release" "litellm" {
     value = "2025-04-01-preview"
   }
 
+  # Azure OpenAI API key (regional endpoint requires key-based auth)
+  set_sensitive {
+    name  = "proxy_config.model_list[0].litellm_params.api_key"
+    value = local.layer1.foundry_api_key
+  }
+
   # Enable Prometheus metrics
   set {
     name  = "proxy_config.litellm_settings.callbacks[0]"

@@ -2,11 +2,12 @@
 
 import { useEffect, useState, useRef } from 'react';
 import { useRouter } from 'next/navigation';
-import { Plus, LogOut, MessageSquare } from 'lucide-react';
-import { getToken, clearToken, getChatHistory, getConversationMessages, sendMessage, getSandboxStatus } from '@/lib/api';
+import { MessageSquare } from 'lucide-react';
+import { getToken, getChatHistory, getConversationMessages, sendMessage, getSandboxStatus } from '@/lib/api';
 import MessageBubble from '@/components/chat/message-bubble';
 import InputBar from '@/components/chat/input-bar';
 import TypingIndicator from '@/components/chat/typing-indicator';
+import Sidebar from '@/components/layout/sidebar';
 
 interface Conversation {
   id: string;
@@ -107,59 +108,19 @@ export default function ChatPage() {
     }
   };
 
-  const handleLogout = () => {
-    clearToken();
-    router.push('/login');
-  };
-
   const userName = typeof window !== 'undefined'
     ? JSON.parse(localStorage.getItem('user') || '{}').name || 'User'
     : 'User';
 
   return (
     <div className="h-screen flex">
-      {/* Sidebar */}
-      <aside className="w-[260px] bg-[#111111] border-r border-white/[0.06] flex flex-col shrink-0">
-        <div className="p-3">
-          <button
-            onClick={handleNewChat}
-            className="w-full flex items-center gap-2 px-3 py-2.5 rounded-lg border border-white/[0.08] text-sm text-gray-300 hover:bg-white/[0.04] transition-colors"
-          >
-            <Plus size={16} />
-            New Chat
-          </button>
-        </div>
-
-        <div className="flex-1 overflow-y-auto px-2 space-y-0.5">
-          {conversations.map((conv) => (
-            <button
-              key={conv.id}
-              onClick={() => loadMessages(conv.id)}
-              className={`w-full text-left px-3 py-2.5 rounded-lg text-sm transition-colors ${
-                activeConvId === conv.id
-                  ? 'bg-white/[0.06] text-gray-200'
-                  : 'text-gray-400 hover:bg-white/[0.03]'
-              }`}
-            >
-              <p className="truncate">{conv.title}</p>
-              <p className="text-xs text-gray-600 mt-0.5">
-                {new Date(conv.updated_at).toLocaleDateString()}
-              </p>
-            </button>
-          ))}
-        </div>
-
-        <div className="p-3 border-t border-white/[0.06]">
-          <p className="text-xs text-gray-500 truncate mb-2">{userName}</p>
-          <button
-            onClick={handleLogout}
-            className="flex items-center gap-2 text-xs text-gray-500 hover:text-gray-300 transition-colors"
-          >
-            <LogOut size={14} />
-            Sign out
-          </button>
-        </div>
-      </aside>
+      <Sidebar
+        conversations={conversations}
+        activeConvId={activeConvId}
+        onSelectConversation={loadMessages}
+        onNewChat={handleNewChat}
+        userName={userName}
+      />
 
       {/* Main Chat Area */}
       <div className="flex-1 flex flex-col">
