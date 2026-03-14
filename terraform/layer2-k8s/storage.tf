@@ -19,23 +19,3 @@ resource "kubernetes_storage_class_v1" "azure_disk_premium" {
     skuName = "Premium_LRS"
   }
 }
-
-#---------------------------------------------------------------
-# Azure Files CSI - Premium StorageClass for shared storage
-#---------------------------------------------------------------
-
-resource "kubernetes_storage_class_v1" "azure_files_premium" {
-  metadata {
-    name = "azure-files-premium"
-  }
-
-  storage_provisioner    = "file.csi.azure.com"
-  reclaim_policy         = "Delete"
-  allow_volume_expansion = true
-
-  parameters = {
-    skuName = "Premium_LRS"
-  }
-
-  mount_options = ["dir_mode=0700", "file_mode=0700", "uid=1000", "gid=1000"]
-}
