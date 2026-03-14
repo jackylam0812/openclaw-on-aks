@@ -3,6 +3,8 @@ kind: Ingress
 metadata:
   name: portals-ingress
   namespace: portals
+  annotations:
+    nginx.ingress.kubernetes.io/app-root: /app/login
 spec:
   ingressClassName: nginx
   rules:
