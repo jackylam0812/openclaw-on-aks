@@ -16,8 +16,6 @@
    - 3.4 [Why Intel VMs for Kata Isolation](#34-why-intel-vms-for-kata-isolation)
    - 3.5 [Azure AI Foundry & GPT-5.4](#35-azure-ai-foundry--gpt-54)
    - 3.6 [Azure Container Registry](#36-azure-container-registry)
-   - 3.7 [Azure Key Vault](#37-azure-key-vault)
-   - 3.8 [Workload Identity](#38-workload-identity)
 4. [Kubernetes Workloads (Layer 2)](#4-kubernetes-workloads-layer-2)
    - 4.1 [Namespaces](#41-namespaces)
    - 4.2 [Storage Classes](#42-storage-classes)
@@ -158,7 +156,7 @@ Layer 1 is managed by Terraform in `terraform/layer1-azure/` and provisions all 
 
 | Resource Group | Location | Purpose |
 |---|---|---|
-| `<cluster-name>-rg` | AKS region (e.g. `southeastasia`) | AKS cluster, VNet, ACR, Key Vault |
+| `<cluster-name>-rg` | AKS region (e.g. `southeastasia`) | AKS cluster, VNet, ACR |
 | `<cluster-name>-foundry-rg` | Foundry region (e.g. `eastus2`) | AI Foundry Hub, AI Services, GPT-5.4 |
 
 The two resource groups are in different regions because GPT-5.4 is only available in select regions (eastus2, swedencentral, polandcentral, southcentralus), while the AKS cluster can be in any Azure region for latency optimization.
@@ -196,10 +194,7 @@ The two resource groups are in different regions because GPT-5.4 is only availab
 | Service CIDR | 172.16.0.0/16 |
 | DNS Service IP | 172.16.0.10 |
 | Pod CIDR | 10.244.0.0/16 |
-| OIDC Issuer | Enabled (for Workload Identity) |
-| Workload Identity | Enabled |
-| CSI Drivers | Azure Disk + Azure Files |
-| Key Vault Provider | Enabled (5m rotation) |
+| CSI Drivers | Azure Disk |
 
 **Node Pools**:
 
@@ -283,30 +278,6 @@ Three images are built via ACR Tasks (cloud-based `linux/amd64` builds):
 - `openclaw-admin-portal:latest`
 - `openclaw-customer-portal:latest`
 
-### 3.7 Azure Key Vault
-
-| Parameter | Value |
-|-----------|-------|
-| SKU | Standard |
-| Soft Delete | 7 days |
-| Purge Protection | Disabled |
-| Auth | RBAC-based |
-
-Role assignments:
-- Current deployer → Key Vault Administrator
-- AKS CSI driver identity → Key Vault Secrets User
-
-### 3.8 Workload Identity
-
-Two managed identities are created for Kubernetes workloads to authenticate with Azure services:
-
-| Identity | Federated To | Purpose |
-|----------|-------------|---------|
-| `<cluster>-openclaw-identity` | `system:serviceaccount:default:openclaw-sandbox` | OpenClaw sandbox pods accessing Azure resources |
-| `<cluster>-litellm-identity` | `system:serviceaccount:litellm:litellm` | LiteLLM proxy accessing Azure OpenAI |
-
-Both use OIDC federation with audience `api://AzureADTokenExchange`.
-
 ---
 
 ## 4. Kubernetes Workloads (Layer 2)
@@ -317,7 +288,6 @@ Layer 2 is managed by Terraform in `terraform/layer2-k8s/` and reads outputs fro
 
 | Namespace | Purpose |
 |-----------|---------|
-| `kata-system` | Kata runtime components |
 | `openclaw` | Per-user OpenClaw sandbox pods |
 | `litellm` | LiteLLM proxy + PostgreSQL database |
 | `portals` | Admin Portal, Customer Portal, Portal API |
@@ -344,7 +314,7 @@ LiteLLM acts as a unified AI gateway, providing:
 |-----------|-------|
 | Helm Chart | `oci://ghcr.io/berriai/litellm-helm` |
 | Image Tag | `main-latest` |
-| ServiceAccount | `litellm` (with Workload Identity annotations) |
+| ServiceAccount | `litellm` |
 | Database | Standalone PostgreSQL (Bitnami) |
 | Service | ClusterIP on port 4000 |
 
@@ -495,10 +465,8 @@ spec:
     metadata:
       labels:
         sandbox: oc-<userId>
-        azure.workload.identity/use: "true"
     spec:
       runtimeClassName: kata-vm-isolation
-      serviceAccountName: openclaw-sandbox
       securityContext:
         runAsUser: 1000
         runAsGroup: 1000
@@ -821,8 +789,6 @@ securityContext:
 | Portal API ↔ Sandbox | Bearer token (LITELLM_API_KEY) |
 | LiteLLM ↔ Azure OpenAI | API Key (from AI Services account) |
 | AKS ↔ ACR | Managed Identity (AcrPull role) |
-| AKS ↔ Key Vault | Managed Identity (Secrets User role) |
-| Sandbox ↔ Azure | Workload Identity (federated credentials) |
 
 ### RBAC
 
@@ -929,7 +895,7 @@ The entire stack is deployed via a single `install.sh` script with interactive p
 ```
 Phase 1: Azure Infrastructure (~10-15 min)
 ├── terraform init + apply (layer1-azure)
-├── Creates: RG, VNet, AKS, ACR, AI Foundry, Key Vault, Workload Identity
+├── Creates: RG, VNet, AKS, ACR, AI Foundry
 └── Outputs: cluster credentials, ACR name, foundry endpoint, API key
 
 kubectl Configuration
@@ -994,8 +960,6 @@ openclaw-on-aks/
 │   │   ├── vnet.tf                     # VNet, subnets, NAT gateway, NSG
 │   │   ├── azure-openai.tf             # AI Foundry, AI Services, GPT-5.4
 │   │   ├── acr.tf                      # Container registry
-│   │   ├── key-vault.tf                # Key Vault + role assignments
-│   │   ├── workload-identity.tf        # Managed identities + federation
 │   │   ├── passwords.tf                # Generated passwords/secrets
 │   │   ├── variables.tf                # Input variables with defaults
 │   │   └── outputs.tf                  # Outputs consumed by layer2
@@ -1005,7 +969,6 @@ openclaw-on-aks/
 │       ├── storage.tf                  # StorageClass (azure-disk-premium)
 │       ├── litellm.tf                  # LiteLLM Helm release
 │       ├── agent-sandbox.tf            # Sandbox controller installation
-│       ├── workload-identity.tf        # K8s ServiceAccounts
 │       ├── variables.tf                # Input variables
 │       └── outputs.tf                  # Outputs
 ├── agent-sandbox/                      # Sandbox CRD controller manifests

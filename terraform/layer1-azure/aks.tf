@@ -44,20 +44,10 @@ resource "azurerm_kubernetes_cluster" "main" {
     # Do NOT combine with NAT Gateway on the same subnet (causes asymmetric routing).
   }
 
-  # Enable OIDC issuer for Workload Identity
-  oidc_issuer_enabled       = true
-  workload_identity_enabled = true
-
-  # Enable Azure Disk and Azure Files CSI drivers
+  # Enable Azure Disk CSI driver (Azure Files not used)
   storage_profile {
     disk_driver_enabled = true
-    file_driver_enabled = true
-  }
-
-  # Enable Key Vault secrets provider
-  key_vault_secrets_provider {
-    secret_rotation_enabled  = true
-    secret_rotation_interval = "5m"
+    file_driver_enabled = false
   }
 
   tags = local.tags

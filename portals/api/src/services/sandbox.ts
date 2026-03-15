@@ -120,13 +120,10 @@ function buildSandboxManifest(sandboxName: string, namespace: string, userId: st
         metadata: {
           labels: {
             sandbox: sandboxName,
-            'azure.workload.identity/use': 'true',
           },
         },
         spec: {
           runtimeClassName: 'kata-vm-isolation',
-          serviceAccountName: 'openclaw-sandbox',
-          automountServiceAccountToken: true,
           securityContext: {
             runAsUser: 1000,
             runAsGroup: 1000,

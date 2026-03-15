@@ -34,10 +34,6 @@ output "acr_name" {
   value = azurerm_container_registry.main.name
 }
 
-output "key_vault_name" {
-  value = azurerm_key_vault.main.name
-}
-
 output "foundry_endpoint" {
   value = azurerm_ai_services.foundry.endpoint
 }
@@ -67,14 +63,6 @@ output "litellm_db_password" {
 output "litellm_db_admin_password" {
   value     = random_password.litellm_db_admin.result
   sensitive = true
-}
-
-output "litellm_managed_identity_client_id" {
-  value = azurerm_user_assigned_identity.litellm.client_id
-}
-
-output "openclaw_managed_identity_client_id" {
-  value = azurerm_user_assigned_identity.openclaw.client_id
 }
 
 output "configure_kubectl" {

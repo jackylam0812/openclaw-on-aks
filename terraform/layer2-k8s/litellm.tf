@@ -7,31 +7,6 @@ resource "helm_release" "litellm" {
   chart     = "oci://ghcr.io/berriai/litellm-helm"
   namespace = kubernetes_namespace_v1.litellm.metadata[0].name
 
-  # Let Helm manage the ServiceAccount; inject workload identity via annotations
-  set {
-    name  = "serviceAccount.create"
-    value = "true"
-    type  = "string"
-  }
-
-  set {
-    name  = "serviceAccount.name"
-    value = "litellm"
-  }
-
-  set {
-    name  = "serviceAccount.annotations.azure\\.workload\\.identity/client-id"
-    value = local.layer1.litellm_managed_identity_client_id
-  }
-
-  # Inject Workload Identity label so AKS mutating webhook injects
-  # AZURE_CLIENT_ID / AZURE_FEDERATED_TOKEN_FILE into the pod
-  set {
-    name  = "podLabels.azure\\.workload\\.identity/use"
-    value = "true"
-    type  = "string"
-  }
-
   # Use latest stable image
   set {
     name  = "image.tag"

@@ -4,8 +4,6 @@ import AppLayout from '@/components/layout/app-layout';
 
 const models = [
   { name: 'gpt-5.4', provider: 'Azure OpenAI', region: 'eastus2', status: 'active' },
-  { name: 'gpt-4o', provider: 'Azure OpenAI', region: 'eastus2', status: 'inactive' },
-  { name: 'claude-opus-4-6', provider: 'Anthropic', region: 'us-east-1', status: 'inactive' },
 ];
 
 export default function ModelsPage() {
