@@ -10,6 +10,10 @@ terraform {
       source  = "hashicorp/azurerm"
       version = "~> 4.19"
     }
+    azapi = {
+      source  = "Azure/azapi"
+      version = "~> 2.0"
+    }
     azuread = {
       source  = "hashicorp/azuread"
       version = "~> 3.1"
@@ -26,11 +30,10 @@ provider "azurerm" {
     resource_group {
       prevent_deletion_if_contains_resources = false
     }
-    key_vault {
-      purge_soft_delete_on_destroy = true
-    }
   }
 }
+
+provider "azapi" {}
 
 provider "azuread" {}
 
@@ -50,8 +53,7 @@ locals {
   location            = var.location
   resource_group_name = var.resource_group_name != "" ? var.resource_group_name : "${var.name}-rg"
   resource_group      = azurerm_resource_group.main.name
-  kata_namespace      = "kata-system"
-  openclaw_namespace  = "openclaw"
+  openclaw_namespace = "openclaw"
 
   tags = merge(
     var.tags,

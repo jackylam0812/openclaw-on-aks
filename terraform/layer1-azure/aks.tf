@@ -55,28 +55,39 @@ resource "azurerm_kubernetes_cluster" "main" {
 
 #---------------------------------------------------------------
 # Kata Node Pool with AKS native Kata/Mshv isolation
+#
+# Uses azapi_resource because the azurerm provider validation
+# only accepts OCIContainer and WasmWasi for workload_runtime.
+# The Azure REST API accepts KataMshvVmIsolation directly.
 #---------------------------------------------------------------
-resource "azurerm_kubernetes_cluster_node_pool" "kata" {
-  name                  = "kata"
-  kubernetes_cluster_id = azurerm_kubernetes_cluster.main.id
-  vm_size               = var.kata_node_vm_size
-  vnet_subnet_id        = azurerm_subnet.kata.id
-  os_sku                = "AzureLinux"
+resource "azapi_resource" "kata_node_pool" {
+  type      = "Microsoft.ContainerService/managedClusters/agentPools@2024-09-01"
+  name      = "kata"
+  parent_id = azurerm_kubernetes_cluster.main.id
 
-  auto_scaling_enabled = true
-  min_count            = var.kata_node_min_count
-  max_count            = var.kata_node_max_count
-  os_disk_size_gb      = 200
-  workload_runtime     = "KataMshvVmIsolation"
+  body = {
+    properties = {
+      vmSize            = var.kata_node_vm_size
+      vnetSubnetID      = azurerm_subnet.kata.id
+      osType            = "Linux"
+      osSKU             = "AzureLinux"
+      mode              = "User"
+      enableAutoScaling = true
+      minCount          = var.kata_node_min_count
+      maxCount          = var.kata_node_max_count
+      osDiskSizeGB      = 200
+      workloadRuntime   = "KataMshvVmIsolation"
 
-  node_labels = {
-    "workload-type"                  = "kata"
-    "katacontainers.io/kata-runtime" = "true"
+      nodeLabels = {
+        "workload-type"                  = "kata"
+        "katacontainers.io/kata-runtime" = "true"
+      }
+
+      nodeTaints = [
+        "kata=true:NoSchedule"
+      ]
+    }
   }
-
-  node_taints = [
-    "kata=true:NoSchedule"
-  ]
 
   tags = local.tags
 }
