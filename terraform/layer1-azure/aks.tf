@@ -88,8 +88,6 @@ resource "azapi_resource" "kata_node_pool" {
       ]
     }
   }
-
-  tags = local.tags
 }
 
 #---------------------------------------------------------------
