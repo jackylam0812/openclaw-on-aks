@@ -74,3 +74,23 @@ export async function getClusterOverview() {
   const res = await authFetch('/admin/cluster/overview');
   return res.json();
 }
+
+export async function getApprovals(status: string = 'pending') {
+  const res = await authFetch(`/admin/approvals?status=${status}`);
+  return res.json();
+}
+
+export async function getApprovalCounts() {
+  const res = await authFetch('/admin/approvals/counts');
+  return res.json();
+}
+
+export async function approveUser(userId: string) {
+  const res = await authFetch(`/admin/approvals/${userId}/approve`, { method: 'POST' });
+  return res.json();
+}
+
+export async function rejectUser(userId: string) {
+  const res = await authFetch(`/admin/approvals/${userId}/reject`, { method: 'POST' });
+  return res.json();
+}
