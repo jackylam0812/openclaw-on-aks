@@ -25,9 +25,3 @@ resource "kubernetes_namespace_v1" "litellm" {
     name = "litellm"
   }
 }
-
-resource "kubernetes_namespace_v1" "monitoring" {
-  metadata {
-    name = "monitoring"
-  }
-}

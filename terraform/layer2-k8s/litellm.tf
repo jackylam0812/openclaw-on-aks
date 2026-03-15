@@ -82,19 +82,4 @@ resource "helm_release" "litellm" {
     value = local.layer1.foundry_api_key
   }
 
-  # Enable Prometheus metrics
-  set {
-    name  = "proxy_config.litellm_settings.callbacks[0]"
-    value = "prometheus"
-  }
-
-  # Monitoring - disable built-in ServiceMonitor, we create our own
-  set {
-    name  = "serviceMonitor.enabled"
-    value = "false"
-  }
-
-  depends_on = [
-    helm_release.kube_prometheus_stack,
-  ]
 }

@@ -225,7 +225,7 @@ echo "Waiting for cluster nodes to be ready..."
 kubectl wait --for=condition=Ready nodes --all --timeout=300s
 
 echo ""
-echo "Phase 2/2: Deploying Kubernetes workloads (LiteLLM, monitoring...)..."
+echo "Phase 2/2: Deploying Kubernetes workloads (LiteLLM, sandbox controller...)..."
 cd "$LAYER2_DIR"
 terraform init -upgrade
 terraform apply -auto-approve -var=name=$CLUSTER_NAME

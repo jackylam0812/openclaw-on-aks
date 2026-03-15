@@ -81,8 +81,3 @@ output "configure_kubectl" {
   description = "Configure kubectl: run this command to update your kubeconfig"
   value       = "az aks get-credentials --resource-group ${azurerm_resource_group.main.name} --name ${azurerm_kubernetes_cluster.main.name}"
 }
-
-output "grafana_admin_password" {
-  value     = random_password.grafana_admin.result
-  sensitive = true
-}
