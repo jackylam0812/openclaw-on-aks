@@ -1,7 +1,8 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { Users, Server, Box, Cpu } from 'lucide-react';
+import { Users, Server, Box, Cpu, ClipboardCheck } from 'lucide-react';
+import Link from 'next/link';
 import AppLayout from '@/components/layout/app-layout';
 import { getClusterOverview } from '@/lib/api';
 
@@ -11,6 +12,7 @@ interface ClusterOverview {
   nodeCount: number;
   totalPods: number;
   openclawPods: number;
+  pendingApprovals: number;
   nodes: any[];
 }
 
@@ -19,6 +21,7 @@ const statCards = [
   { key: 'activeSandboxes', label: 'Active Sandboxes', icon: Box, gradient: 'from-green-500 to-emerald-500' },
   { key: 'nodeCount', label: 'Cluster Nodes', icon: Server, gradient: 'from-purple-500 to-violet-500' },
   { key: 'totalPods', label: 'Sandbox Pods', icon: Cpu, gradient: 'from-orange-500 to-amber-500' },
+  { key: 'pendingApprovals', label: 'Pending Approvals', icon: ClipboardCheck, gradient: 'from-yellow-500 to-amber-400', href: '/approvals' },
 ] as const;
 
 export default function DashboardPage() {
@@ -39,11 +42,8 @@ export default function DashboardPage() {
         {statCards.map((card) => {
           const Icon = card.icon;
           const value = overview ? (overview as any)[card.key] : '—';
-          return (
-            <div
-              key={card.key}
-              className="bg-white/[0.03] border border-white/[0.06] rounded-xl p-5 backdrop-blur-sm"
-            >
+          const content = (
+            <>
               <div className="flex items-center justify-between mb-3">
                 <span className="text-sm text-gray-400">{card.label}</span>
                 <div className={`w-8 h-8 rounded-lg bg-gradient-to-br ${card.gradient} flex items-center justify-center`}>
@@ -53,6 +53,17 @@ export default function DashboardPage() {
               <p className="text-2xl font-semibold text-gray-100">
                 {overview ? String(value) : '—'}
               </p>
+            </>
+          );
+          const className = "bg-white/[0.03] border border-white/[0.06] rounded-xl p-5 backdrop-blur-sm" +
+            ('href' in card ? ' hover:bg-white/[0.06] transition-colors cursor-pointer' : '');
+          return 'href' in card ? (
+            <Link key={card.key} href={card.href} className={className}>
+              {content}
+            </Link>
+          ) : (
+            <div key={card.key} className={className}>
+              {content}
             </div>
           );
         })}

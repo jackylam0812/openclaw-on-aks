@@ -2,11 +2,12 @@
 
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
-import { LayoutDashboard, Server, Cpu, Users, BarChart2, LogOut } from 'lucide-react';
+import { LayoutDashboard, Server, Cpu, Users, BarChart2, LogOut, ClipboardCheck } from 'lucide-react';
 import { clearToken } from '@/lib/api';
 
 const navItems = [
   { href: '/dashboard', label: 'Dashboard', icon: LayoutDashboard },
+  { href: '/approvals', label: 'Approvals', icon: ClipboardCheck },
   { href: '/cluster', label: 'Cluster', icon: Server },
   { href: '/models', label: 'Models', icon: Cpu },
   { href: '/users', label: 'Users', icon: Users },
