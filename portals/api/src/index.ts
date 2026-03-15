@@ -31,7 +31,7 @@ try {
 
   // Provision any sandboxes still in "provisioning" state (e.g. admin user on fresh deploy)
   const pending = db.prepare(
-    "SELECT s.user_id, u.email FROM sandboxes s JOIN users u ON s.user_id = u.id WHERE s.status = 'provisioning'"
+    "SELECT s.user_id, u.email FROM sandboxes s JOIN users u ON s.user_id = u.id WHERE s.status = 'provisioning' AND u.approval_status = 'approved'"
   ).all() as { user_id: string; email: string }[];
   for (const row of pending) {
     console.log(`Auto-provisioning sandbox for ${row.email}...`);
