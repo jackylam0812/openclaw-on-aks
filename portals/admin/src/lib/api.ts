@@ -86,11 +86,11 @@ export async function getApprovalCounts() {
 }
 
 export async function approveUser(userId: string) {
-  const res = await authFetch(`/admin/approvals/${userId}/approve`, { method: 'POST' });
+  const res = await authFetch(`/admin/approvals/${userId}/approve`, { method: 'POST', body: '{}' });
   return res.json();
 }
 
 export async function rejectUser(userId: string) {
-  const res = await authFetch(`/admin/approvals/${userId}/reject`, { method: 'POST' });
+  const res = await authFetch(`/admin/approvals/${userId}/reject`, { method: 'POST', body: '{}' });
   return res.json();
 }
