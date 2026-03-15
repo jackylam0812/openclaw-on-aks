@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { Plug } from 'lucide-react';
-import { getToken, getIntegrations, getChatHistory, connectIntegration, disconnectIntegration } from '@/lib/api';
+import { getToken, getIntegrations, getChatHistory, connectIntegration, disconnectIntegration, getMe } from '@/lib/api';
 import Sidebar from '@/components/layout/sidebar';
 
 interface Integration {
@@ -62,8 +62,16 @@ export default function IntegrationsPage() {
       router.push('/login');
       return;
     }
-    loadIntegrations();
-    loadConversations();
+    getMe().then((user) => {
+      if (user.approval_status !== 'approved') {
+        router.push('/pending');
+        return;
+      }
+      loadIntegrations();
+      loadConversations();
+    }).catch(() => {
+      router.push('/login');
+    });
   }, [router]);
 
   const loadIntegrations = async () => {

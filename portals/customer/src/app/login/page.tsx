@@ -26,7 +26,11 @@ export default function LoginPage() {
       }
       setToken(data.token);
       localStorage.setItem('user', JSON.stringify(data.user));
-      router.push('/chat');
+      if (data.user.approval_status === 'approved') {
+        router.push('/chat');
+      } else {
+        router.push('/pending');
+      }
     } catch (err: any) {
       setError(err.message || 'Something went wrong');
     } finally {

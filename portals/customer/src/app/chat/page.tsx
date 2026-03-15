@@ -3,7 +3,7 @@
 import { useEffect, useState, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import { MessageSquare } from 'lucide-react';
-import { getToken, getChatHistory, getConversationMessages, sendMessage, getSandboxStatus, getIntegrations } from '@/lib/api';
+import { getToken, getChatHistory, getConversationMessages, sendMessage, getSandboxStatus, getIntegrations, getMe } from '@/lib/api';
 import MessageBubble from '@/components/chat/message-bubble';
 import InputBar from '@/components/chat/input-bar';
 import TypingIndicator from '@/components/chat/typing-indicator';
@@ -38,9 +38,17 @@ export default function ChatPage() {
       router.push('/login');
       return;
     }
-    loadConversations();
-    loadSandboxStatus();
-    loadChannels();
+    getMe().then((user) => {
+      if (user.approval_status !== 'approved') {
+        router.push('/pending');
+        return;
+      }
+      loadConversations();
+      loadSandboxStatus();
+      loadChannels();
+    }).catch(() => {
+      router.push('/login');
+    });
   }, [router]);
 
   const loadSandboxStatus = async () => {
