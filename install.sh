@@ -284,16 +284,28 @@ deploy_portals() {
   rm -f /tmp/tls-placeholder.key /tmp/tls-placeholder.crt
 
   # Apply deployments with image substitution
-  # Generate LiteLLM API key for portal-api
-  echo "Generating LiteLLM API key..."
+  # Wait for LiteLLM to be fully ready (DB migration must complete before key generation)
+  echo "Waiting for LiteLLM to be ready..."
+  kubectl wait --for=condition=Ready pods -l app=litellm -n litellm --timeout=120s
   MASTER_KEY=$(kubectl get secret litellm-masterkey -n litellm -o jsonpath='{.data.masterkey}' | base64 -d)
-  LITELLM_KEY=$(kubectl run -n litellm gen-portal-key --rm -i --restart=Never --image=curlimages/curl -- \
-    curl -s -X POST http://litellm.litellm.svc.cluster.local:4000/key/generate \
-    -H "Authorization: Bearer $MASTER_KEY" \
-    -H "Content-Type: application/json" \
-    -d '{"models": ["gpt-5.4"], "duration": "365d", "key_alias": "portal-api"}' 2>/dev/null \
-    | grep -o '"key":"[^"]*"' | cut -d'"' -f4)
-  echo "  ✓ LiteLLM API key generated"
+  for attempt in $(seq 1 6); do
+    echo "  Generating LiteLLM API key (attempt $attempt)..."
+    LITELLM_KEY=$(kubectl run -n litellm gen-portal-key --rm -i --restart=Never --image=curlimages/curl -- \
+      curl -s -X POST http://litellm.litellm.svc.cluster.local:4000/key/generate \
+      -H "Authorization: Bearer $MASTER_KEY" \
+      -H "Content-Type: application/json" \
+      -d '{"models": ["gpt-5.4"], "duration": "365d", "key_alias": "portal-api"}' 2>/dev/null \
+      | grep -o '"key":"[^"]*"' | cut -d'"' -f4)
+    [ -n "$LITELLM_KEY" ] && break
+    echo "  Key generation failed, waiting 15s for DB migration..."
+    sleep 15
+  done
+  if [ -z "$LITELLM_KEY" ]; then
+    echo "  ⚠ Failed to generate LiteLLM API key after 6 attempts"
+    echo "  You can generate one manually after deployment"
+  else
+    echo "  ✓ LiteLLM API key generated"
+  fi
 
   # Deploy portal-api initially (TLS cert and API_BASE_URL will be set after ingress IP is known)
   sed "s|PORTAL_API_IMAGE|$PORTAL_API_IMAGE|g; s|JWT_SECRET_VALUE|$JWT_SECRET|g; s|LITELLM_API_KEY_VALUE|$LITELLM_KEY|g; s|API_BASE_URL_VALUE|http://localhost:3000|g" \
