@@ -100,3 +100,8 @@ export async function getSandboxStatus() {
   const res = await authFetch('/sandbox/status');
   return res.json();
 }
+
+export async function getMe() {
+  const res = await authFetch('/auth/me');
+  return res.json();
+}
