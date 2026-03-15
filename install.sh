@@ -272,6 +272,17 @@ deploy_portals() {
   kubectl apply -f portals/k8s/pvc.yaml
   kubectl apply -f portals/k8s/portal-api-rbac.yaml
 
+  # Create placeholder TLS secret + configmap so portal-api pod can mount volumes
+  # (real cert will be generated later once ingress IP is known)
+  openssl req -x509 -newkey rsa:2048 -sha256 -days 1 -nodes \
+    -keyout /tmp/tls-placeholder.key -out /tmp/tls-placeholder.crt \
+    -subj "/CN=placeholder" 2>/dev/null
+  kubectl create secret tls ingress-tls-cert --cert=/tmp/tls-placeholder.crt --key=/tmp/tls-placeholder.key -n portals \
+    --dry-run=client -o yaml | kubectl apply -f -
+  kubectl create configmap tls-public-cert -n portals --from-file=tls.crt=/tmp/tls-placeholder.crt \
+    --dry-run=client -o yaml | kubectl apply -f -
+  rm -f /tmp/tls-placeholder.key /tmp/tls-placeholder.crt
+
   # Apply deployments with image substitution
   # Generate LiteLLM API key for portal-api
   echo "Generating LiteLLM API key..."
