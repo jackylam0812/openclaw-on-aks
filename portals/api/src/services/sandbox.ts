@@ -274,7 +274,17 @@ export async function updateSandboxChannels(userId: string): Promise<void> {
 
   try {
     applyManifest(manifest, sandbox.pod_name);
-    console.log(`Sandbox ${sandbox.pod_name} updated with new channel config`);
+    // Delete the pod so it restarts with the new config
+    // (Sandbox CRD will recreate it automatically)
+    try {
+      execSync(`kubectl delete pod ${sandbox.pod_name} -n openclaw --grace-period=10`, {
+        encoding: 'utf-8',
+        timeout: 30000,
+      });
+      console.log(`Sandbox ${sandbox.pod_name} updated and pod restarted with new channel config`);
+    } catch (deleteErr: any) {
+      console.warn(`Sandbox ${sandbox.pod_name} updated but pod delete failed: ${deleteErr.message}`);
+    }
   } catch (error: any) {
     console.error(`Failed to update sandbox channels for ${sandbox.pod_name}:`, error.message);
   }
