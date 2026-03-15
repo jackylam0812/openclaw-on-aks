@@ -2,8 +2,7 @@ import { FastifyInstance } from 'fastify';
 import bcrypt from 'bcryptjs';
 import { v4 as uuid } from 'uuid';
 import db from '../db/client.js';
-import { signToken } from '../middleware/auth.js';
-import { provisionSandbox } from '../services/sandbox.js';
+import { signToken, requireAuth } from '../middleware/auth.js';
 
 export default async function authRoutes(app: FastifyInstance) {
   app.post('/auth/login', async (request, reply) => {
@@ -16,7 +15,7 @@ export default async function authRoutes(app: FastifyInstance) {
       return reply.status(401).send({ error: 'Invalid credentials' });
     }
     const token = signToken({ userId: user.id, email: user.email, role: user.role });
-    return { token, user: { id: user.id, email: user.email, name: user.name, role: user.role } };
+    return { token, user: { id: user.id, email: user.email, name: user.name, role: user.role, approval_status: user.approval_status } };
   });
 
   app.post('/auth/register', async (request, reply) => {
@@ -34,17 +33,17 @@ export default async function authRoutes(app: FastifyInstance) {
       id, email, hash, name, 'user'
     );
 
-    // Provision sandbox for new user
-    const sandboxId = uuid();
-    db.prepare('INSERT INTO sandboxes (id, user_id, status) VALUES (?, ?, ?)').run(
-      sandboxId, id, 'provisioning'
-    );
-    provisionSandbox(id, email).catch((err) => {
-      console.error('Background sandbox provisioning error:', err);
-    });
-
     const token = signToken({ userId: id, email, role: 'user' });
-    return { token, user: { id, email, name, role: 'user' } };
+    return { token, user: { id, email, name, role: 'user', approval_status: 'pending' } };
+  });
+
+  app.get('/auth/me', { preHandler: [requireAuth] }, async (request) => {
+    const { userId } = (request as any).user;
+    const user = db.prepare('SELECT id, email, name, role, approval_status, created_at FROM users WHERE id = ?').get(userId) as any;
+    if (!user) {
+      return { error: 'User not found' };
+    }
+    return user;
   });
 
   app.post('/auth/refresh', async (request, reply) => {
