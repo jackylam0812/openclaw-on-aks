@@ -13,30 +13,59 @@ interface ChannelConfig {
   telegram?: { botToken: string };
 }
 
+interface ModelRecord {
+  id: string;
+  name: string;
+  model_id: string;
+  reasoning: number;
+  input_types: string;
+  context_window: number;
+  max_tokens: number;
+  is_default: number;
+  enabled: number;
+}
+
+function getEnabledModels(): ModelRecord[] {
+  return db.prepare('SELECT * FROM models WHERE enabled = 1 ORDER BY is_default DESC, created_at ASC').all() as ModelRecord[];
+}
+
+/**
+ * Build OpenClaw config with placeholders instead of real secrets.
+ * Secrets are injected at pod startup via env vars + sed.
+ */
 function buildOpenClawConfig(channels: ChannelConfig = {}) {
+  const models = getEnabledModels();
+  const defaultModel = models.find(m => m.is_default) || models[0];
+
+  const litellmModels = models.map(m => ({
+    id: m.model_id,
+    name: `${m.name} (LiteLLM)`,
+    reasoning: m.reasoning === 1,
+    input: m.input_types.split(',').map(s => s.trim()),
+    contextWindow: m.context_window,
+    maxTokens: m.max_tokens,
+  }));
+
+  const modelsWhitelist: Record<string, object> = {};
+  for (const m of models) {
+    modelsWhitelist[`litellm/${m.model_id}`] = {};
+  }
+
   const config: any = {
     models: {
       providers: {
         litellm: {
           baseUrl: LITELLM_URL,
-          apiKey: LITELLM_API_KEY,
+          apiKey: '__OC_LITELLM_API_KEY__',
           api: 'openai-completions',
-          models: [
-            {
-              id: 'gpt-5.4',
-              name: 'GPT-5.4 (LiteLLM)',
-              reasoning: true,
-              input: ['text', 'image'],
-              contextWindow: 200000,
-              maxTokens: 8192,
-            },
-          ],
+          models: litellmModels,
         },
       },
     },
     agents: {
       defaults: {
-        model: { primary: 'litellm/gpt-5.4' },
+        model: { primary: defaultModel ? `litellm/${defaultModel.model_id}` : 'litellm/gpt-5.4' },
+        models: modelsWhitelist,
         workspace: '/home/node/.openclaw/workspace',
       },
     },
@@ -44,7 +73,7 @@ function buildOpenClawConfig(channels: ChannelConfig = {}) {
       port: 18789,
       mode: 'local',
       bind: 'lan',
-      auth: { mode: 'token', token: LITELLM_API_KEY },
+      auth: { mode: 'token', token: '__OC_GATEWAY_TOKEN__' },
       controlUi: { dangerouslyAllowHostHeaderOriginFallback: true },
       http: {
         endpoints: {
@@ -60,8 +89,8 @@ function buildOpenClawConfig(channels: ChannelConfig = {}) {
   if (channels.feishu) {
     channelSection.feishu = {
       enabled: true,
-      appId: channels.feishu.appId,
-      appSecret: channels.feishu.appSecret,
+      appId: '__OC_FEISHU_APP_ID__',
+      appSecret: '__OC_FEISHU_APP_SECRET__',
       domain: 'feishu',
       dmPolicy: 'open',
       allowFrom: ['*'],
@@ -72,8 +101,8 @@ function buildOpenClawConfig(channels: ChannelConfig = {}) {
   if (channels.slack) {
     channelSection.slack = {
       enabled: true,
-      botToken: channels.slack.botToken,
-      appToken: channels.slack.appToken,
+      botToken: '__OC_SLACK_BOT_TOKEN__',
+      appToken: '__OC_SLACK_APP_TOKEN__',
       dmPolicy: 'open',
       allowFrom: ['*'],
     };
@@ -83,7 +112,7 @@ function buildOpenClawConfig(channels: ChannelConfig = {}) {
   if (channels.telegram) {
     channelSection.telegram = {
       enabled: true,
-      botToken: channels.telegram.botToken,
+      botToken: '__OC_TELEGRAM_BOT_TOKEN__',
       dmPolicy: 'open',
       allowFrom: ['*'],
     };
@@ -98,10 +127,109 @@ function buildOpenClawConfig(channels: ChannelConfig = {}) {
   return config;
 }
 
+/**
+ * Build a Kubernetes Secret containing all sensitive values for a sandbox.
+ */
+function buildSandboxSecret(sandboxName: string, namespace: string, channels: ChannelConfig = {}): object {
+  const secretData: Record<string, string> = {
+    OC_LITELLM_API_KEY: Buffer.from(LITELLM_API_KEY).toString('base64'),
+    OC_GATEWAY_TOKEN: Buffer.from(LITELLM_API_KEY).toString('base64'),
+  };
+
+  if (channels.feishu) {
+    secretData.OC_FEISHU_APP_ID = Buffer.from(channels.feishu.appId).toString('base64');
+    secretData.OC_FEISHU_APP_SECRET = Buffer.from(channels.feishu.appSecret).toString('base64');
+  }
+  if (channels.slack) {
+    secretData.OC_SLACK_BOT_TOKEN = Buffer.from(channels.slack.botToken).toString('base64');
+    secretData.OC_SLACK_APP_TOKEN = Buffer.from(channels.slack.appToken).toString('base64');
+  }
+  if (channels.telegram) {
+    secretData.OC_TELEGRAM_BOT_TOKEN = Buffer.from(channels.telegram.botToken).toString('base64');
+  }
+
+  return {
+    apiVersion: 'v1',
+    kind: 'Secret',
+    metadata: {
+      name: `${sandboxName}-secrets`,
+      namespace,
+      labels: {
+        'openclaw.ai/managed-by': 'portal-api',
+        'openclaw.ai/sandbox': sandboxName,
+      },
+    },
+    data: secretData,
+  };
+}
+
+/**
+ * Build env var entries that reference a sandbox's Secret.
+ */
+function buildSecretEnvVars(sandboxName: string, channels: ChannelConfig = {}): object[] {
+  const secretName = `${sandboxName}-secrets`;
+  const envVars: object[] = [
+    { name: 'OC_LITELLM_API_KEY', valueFrom: { secretKeyRef: { name: secretName, key: 'OC_LITELLM_API_KEY' } } },
+    { name: 'OC_GATEWAY_TOKEN', valueFrom: { secretKeyRef: { name: secretName, key: 'OC_GATEWAY_TOKEN' } } },
+  ];
+
+  if (channels.feishu) {
+    envVars.push({ name: 'OC_FEISHU_APP_ID', valueFrom: { secretKeyRef: { name: secretName, key: 'OC_FEISHU_APP_ID' } } });
+    envVars.push({ name: 'OC_FEISHU_APP_SECRET', valueFrom: { secretKeyRef: { name: secretName, key: 'OC_FEISHU_APP_SECRET' } } });
+  }
+  if (channels.slack) {
+    envVars.push({ name: 'OC_SLACK_BOT_TOKEN', valueFrom: { secretKeyRef: { name: secretName, key: 'OC_SLACK_BOT_TOKEN' } } });
+    envVars.push({ name: 'OC_SLACK_APP_TOKEN', valueFrom: { secretKeyRef: { name: secretName, key: 'OC_SLACK_APP_TOKEN' } } });
+  }
+  if (channels.telegram) {
+    envVars.push({ name: 'OC_TELEGRAM_BOT_TOKEN', valueFrom: { secretKeyRef: { name: secretName, key: 'OC_TELEGRAM_BOT_TOKEN' } } });
+  }
+
+  return envVars;
+}
+
+/**
+ * Build the startup command that replaces config placeholders with env var values.
+ */
+function buildStartupCommand(configBase64: string, channels: ChannelConfig = {}): string {
+  const lines = [
+    'mkdir -p /home/node/.openclaw/workspace',
+    `echo '${configBase64}' | base64 -d > /tmp/oc-config.json`,
+    // Replace placeholders with env var values
+    'sed -i "s|__OC_LITELLM_API_KEY__|$OC_LITELLM_API_KEY|g" /tmp/oc-config.json',
+    'sed -i "s|__OC_GATEWAY_TOKEN__|$OC_GATEWAY_TOKEN|g" /tmp/oc-config.json',
+  ];
+
+  if (channels.feishu) {
+    lines.push('sed -i "s|__OC_FEISHU_APP_ID__|$OC_FEISHU_APP_ID|g" /tmp/oc-config.json');
+    lines.push('sed -i "s|__OC_FEISHU_APP_SECRET__|$OC_FEISHU_APP_SECRET|g" /tmp/oc-config.json');
+  }
+  if (channels.slack) {
+    lines.push('sed -i "s|__OC_SLACK_BOT_TOKEN__|$OC_SLACK_BOT_TOKEN|g" /tmp/oc-config.json');
+    lines.push('sed -i "s|__OC_SLACK_APP_TOKEN__|$OC_SLACK_APP_TOKEN|g" /tmp/oc-config.json');
+  }
+  if (channels.telegram) {
+    lines.push('sed -i "s|__OC_TELEGRAM_BOT_TOKEN__|$OC_TELEGRAM_BOT_TOKEN|g" /tmp/oc-config.json');
+  }
+
+  lines.push(
+    'chmod 644 /home/node/.openclaw/openclaw.json 2>/dev/null; rm -f /home/node/.openclaw/openclaw.json',
+    'cp /tmp/oc-config.json /home/node/.openclaw/openclaw.json',
+    'rm -f /tmp/oc-config.json',
+    'chmod 444 /home/node/.openclaw/openclaw.json',
+    'exec node dist/index.js gateway --bind=lan --port 18789 --verbose',
+  );
+
+  return lines.join('\n');
+}
+
 function buildSandboxManifest(sandboxName: string, namespace: string, userId: string, userEmail: string, channels: ChannelConfig = {}): object {
   const openclawConfig = buildOpenClawConfig(channels);
   const configJson = JSON.stringify(openclawConfig);
   const configBase64 = Buffer.from(configJson).toString('base64');
+
+  const envVars = buildSecretEnvVars(sandboxName, channels);
+  const startupCommand = buildStartupCommand(configBase64, channels);
 
   return {
     apiVersion: 'agents.x-k8s.io/v1alpha1',
@@ -151,14 +279,11 @@ function buildSandboxManifest(sandboxName: string, namespace: string, userId: st
                 runAsNonRoot: true,
                 capabilities: { drop: ['ALL'] },
               },
+              env: envVars,
               command: [
                 'sh',
                 '-c',
-                [
-                  'mkdir -p /home/node/.openclaw/workspace',
-                  `echo '${configBase64}' | base64 -d > /home/node/.openclaw/openclaw.json`,
-                  'exec node dist/index.js gateway --bind=lan --port 18789 --allow-unconfigured --verbose',
-                ].join('\n'),
+                startupCommand,
               ],
               ports: [
                 { containerPort: 18789 },
@@ -197,9 +322,9 @@ function buildSandboxManifest(sandboxName: string, namespace: string, userId: st
   };
 }
 
-function applyManifest(manifest: object, sandboxName: string): void {
+function applyManifest(manifest: object, name: string): void {
   const manifestJson = JSON.stringify(manifest, null, 2);
-  const tmpFile = join(tmpdir(), `sandbox-${sandboxName}.json`);
+  const tmpFile = join(tmpdir(), `sandbox-${name}.json`);
   try {
     writeFileSync(tmpFile, manifestJson, 'utf-8');
     execSync(`kubectl apply -f ${tmpFile}`, {
@@ -208,6 +333,20 @@ function applyManifest(manifest: object, sandboxName: string): void {
     });
   } finally {
     try { unlinkSync(tmpFile); } catch {}
+  }
+}
+
+/**
+ * Delete the Kubernetes Secret for a sandbox.
+ */
+function deleteSandboxSecret(sandboxName: string, namespace: string): void {
+  try {
+    execSync(`kubectl delete secret ${sandboxName}-secrets -n ${namespace} --ignore-not-found`, {
+      encoding: 'utf-8',
+      timeout: 15000,
+    });
+  } catch (err: any) {
+    console.warn(`Failed to delete secret ${sandboxName}-secrets: ${err.message}`);
   }
 }
 
@@ -238,9 +377,13 @@ export async function provisionSandbox(userId: string, userEmail: string): Promi
   const namespace = 'openclaw';
 
   const channels = getUserChannels(userId);
-  const manifest = buildSandboxManifest(sandboxName, namespace, userId, userEmail, channels);
 
   try {
+    // Apply Secret first, then Sandbox manifest
+    const secret = buildSandboxSecret(sandboxName, namespace, channels);
+    applyManifest(secret, `${sandboxName}-secrets`);
+
+    const manifest = buildSandboxManifest(sandboxName, namespace, userId, userEmail, channels);
     applyManifest(manifest, sandboxName);
 
     const endpoint = `http://${sandboxName}.${namespace}.svc.cluster.local:18789`;
@@ -270,12 +413,15 @@ export async function updateSandboxChannels(userId: string): Promise<void> {
   if (!user) return;
 
   const channels = getUserChannels(userId);
-  const manifest = buildSandboxManifest(sandbox.pod_name, 'openclaw', userId, user.email, channels);
 
   try {
+    // Update Secret and Sandbox manifest
+    const secret = buildSandboxSecret(sandbox.pod_name, 'openclaw', channels);
+    applyManifest(secret, `${sandbox.pod_name}-secrets`);
+
+    const manifest = buildSandboxManifest(sandbox.pod_name, 'openclaw', userId, user.email, channels);
     applyManifest(manifest, sandbox.pod_name);
-    // Delete the pod so it restarts with the new config
-    // (Sandbox CRD will recreate it automatically)
+
     try {
       execSync(`kubectl delete pod ${sandbox.pod_name} -n openclaw --grace-period=10`, {
         encoding: 'utf-8',
@@ -288,6 +434,58 @@ export async function updateSandboxChannels(userId: string): Promise<void> {
   } catch (error: any) {
     console.error(`Failed to update sandbox channels for ${sandbox.pod_name}:`, error.message);
   }
+}
+
+/**
+ * Re-apply all sandbox manifests (e.g. after model config change).
+ * Returns { success: number, failed: number }.
+ */
+export async function syncAllSandboxes(): Promise<{ success: number; failed: number }> {
+  const sandboxes = db.prepare(
+    "SELECT s.user_id, s.pod_name, u.email FROM sandboxes s JOIN users u ON s.user_id = u.id WHERE s.pod_name IS NOT NULL"
+  ).all() as { user_id: string; pod_name: string; email: string }[];
+
+  let success = 0;
+  let failed = 0;
+  for (const sb of sandboxes) {
+    try {
+      const channels = getUserChannels(sb.user_id);
+
+      // Update Secret and Sandbox manifest
+      const secret = buildSandboxSecret(sb.pod_name, 'openclaw', channels);
+      applyManifest(secret, `${sb.pod_name}-secrets`);
+
+      const manifest = buildSandboxManifest(sb.pod_name, 'openclaw', sb.user_id, sb.email, channels);
+      applyManifest(manifest, sb.pod_name);
+
+      try {
+        execSync(`kubectl delete pod ${sb.pod_name} -n openclaw --grace-period=10`, {
+          encoding: 'utf-8', timeout: 30000,
+        });
+      } catch {}
+      success++;
+      console.log(`Synced sandbox ${sb.pod_name}`);
+    } catch (err: any) {
+      failed++;
+      console.error(`Failed to sync sandbox ${sb.pod_name}: ${err.message}`);
+    }
+  }
+  return { success, failed };
+}
+
+/**
+ * Delete a sandbox and its associated Secret.
+ */
+export function deleteSandbox(sandboxName: string, namespace: string = 'openclaw'): void {
+  try {
+    execSync(`kubectl delete sandbox ${sandboxName} -n ${namespace} --grace-period=10`, {
+      encoding: 'utf-8',
+      timeout: 30000,
+    });
+  } catch (err: any) {
+    console.warn(`Failed to delete sandbox CR ${sandboxName}: ${err.message}`);
+  }
+  deleteSandboxSecret(sandboxName, namespace);
 }
 
 export function getSandboxStatus(userId: string) {

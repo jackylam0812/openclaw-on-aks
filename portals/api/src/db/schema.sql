@@ -33,6 +33,23 @@ CREATE TABLE IF NOT EXISTS integrations (
   created_at DATETIME DEFAULT CURRENT_TIMESTAMP
 );
 
+CREATE TABLE IF NOT EXISTS models (
+  id TEXT PRIMARY KEY,
+  name TEXT NOT NULL,
+  model_id TEXT UNIQUE NOT NULL,
+  litellm_model TEXT NOT NULL DEFAULT '',
+  api_base TEXT NOT NULL DEFAULT '',
+  api_key TEXT NOT NULL DEFAULT '',
+  api_version TEXT NOT NULL DEFAULT '',
+  reasoning INTEGER DEFAULT 0,
+  input_types TEXT DEFAULT 'text',
+  context_window INTEGER DEFAULT 200000,
+  max_tokens INTEGER DEFAULT 8192,
+  is_default INTEGER DEFAULT 0,
+  enabled INTEGER DEFAULT 1,
+  created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+
 CREATE TABLE IF NOT EXISTS sandboxes (
   id TEXT PRIMARY KEY,
   user_id TEXT UNIQUE REFERENCES users(id),

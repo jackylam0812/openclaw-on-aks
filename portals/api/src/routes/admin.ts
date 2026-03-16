@@ -3,7 +3,7 @@ import { execSync } from 'child_process';
 import { requireAdmin } from '../middleware/auth.js';
 import db from '../db/client.js';
 import { getNodes, getPods } from '../services/k8s.js';
-import { provisionSandbox } from '../services/sandbox.js';
+import { provisionSandbox, syncAllSandboxes, deleteSandbox } from '../services/sandbox.js';
 import { v4 as uuid } from 'uuid';
 
 export default async function adminRoutes(app: FastifyInstance) {
@@ -141,18 +141,10 @@ export default async function adminRoutes(app: FastifyInstance) {
       return reply.status(400).send({ error: 'Cannot delete admin user' });
     }
 
-    // Delete sandbox pod + Sandbox CR in k8s
+    // Delete sandbox CR + associated Secret in k8s
     const sandbox = db.prepare('SELECT pod_name, namespace FROM sandboxes WHERE user_id = ?').get(userId) as any;
     if (sandbox?.pod_name) {
-      const ns = sandbox.namespace || 'openclaw';
-      try {
-        execSync(`kubectl delete sandbox ${sandbox.pod_name} -n ${ns} --grace-period=10`, {
-          encoding: 'utf-8',
-          timeout: 30000,
-        });
-      } catch (err: any) {
-        console.warn(`Failed to delete sandbox CR ${sandbox.pod_name}: ${err.message}`);
-      }
+      deleteSandbox(sandbox.pod_name, sandbox.namespace || 'openclaw');
     }
 
     // Delete all DB records for this user
@@ -163,5 +155,100 @@ export default async function adminRoutes(app: FastifyInstance) {
     db.prepare('DELETE FROM users WHERE id = ?').run(userId);
 
     return { success: true, message: `User ${user.email} and associated sandbox deleted` };
+  });
+
+  // --- Model management ---
+
+  app.get('/admin/models', async () => {
+    return db.prepare('SELECT * FROM models ORDER BY is_default DESC, created_at ASC').all();
+  });
+
+  app.post('/admin/models', async (request, reply) => {
+    const { name, model_id, litellm_model, api_base, api_key, api_version, reasoning, input_types, context_window, max_tokens } = request.body as any;
+    if (!name || !model_id || !litellm_model) {
+      return reply.status(400).send({ error: 'name, model_id, and litellm_model are required' });
+    }
+    const existing = db.prepare('SELECT id FROM models WHERE model_id = ?').get(model_id);
+    if (existing) {
+      return reply.status(409).send({ error: `Model ${model_id} already exists` });
+    }
+
+    // Register model in LiteLLM
+    const litellmUrl = process.env.OPENCLAW_API_URL || 'http://litellm.litellm.svc.cluster.local:4000';
+    const litellmMasterKey = process.env.LITELLM_MASTER_KEY || '';
+    const litellmParams: any = { model: litellm_model };
+    if (api_base) litellmParams.api_base = api_base;
+    if (api_key) litellmParams.api_key = api_key;
+    if (api_version) litellmParams.api_version = api_version;
+
+    try {
+      const litellmRes = await fetch(`${litellmUrl}/model/new`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${litellmMasterKey}`,
+        },
+        body: JSON.stringify({ model_name: model_id, litellm_params: litellmParams }),
+      });
+      if (!litellmRes.ok) {
+        const err = await litellmRes.text();
+        return reply.status(502).send({ error: `LiteLLM error: ${err}` });
+      }
+    } catch (e: any) {
+      return reply.status(502).send({ error: `Cannot reach LiteLLM: ${e.message}` });
+    }
+
+    // Save to local DB
+    const id = uuid();
+    db.prepare(
+      'INSERT INTO models (id, name, model_id, litellm_model, api_base, api_key, api_version, reasoning, input_types, context_window, max_tokens) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
+    ).run(id, name, model_id, litellm_model, api_base || '', api_key || '', api_version || '', reasoning ? 1 : 0, input_types || 'text', context_window || 200000, max_tokens || 8192);
+    return { success: true, id };
+  });
+
+  app.delete('/admin/models/:id', async (request, reply) => {
+    const { id } = request.params as { id: string };
+    const model = db.prepare('SELECT id, model_id, is_default FROM models WHERE id = ?').get(id) as any;
+    if (!model) {
+      return reply.status(404).send({ error: 'Model not found' });
+    }
+    if (model.is_default) {
+      return reply.status(400).send({ error: 'Cannot delete the default model. Set another model as default first.' });
+    }
+
+    // Remove from LiteLLM
+    const litellmUrl = process.env.OPENCLAW_API_URL || 'http://litellm.litellm.svc.cluster.local:4000';
+    const litellmMasterKey = process.env.LITELLM_MASTER_KEY || '';
+    try {
+      await fetch(`${litellmUrl}/model/delete`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${litellmMasterKey}`,
+        },
+        body: JSON.stringify({ id: model.model_id }),
+      });
+    } catch (e: any) {
+      console.warn(`Failed to delete model from LiteLLM: ${e.message}`);
+    }
+
+    db.prepare('DELETE FROM models WHERE id = ?').run(id);
+    return { success: true };
+  });
+
+  app.patch('/admin/models/:id/default', async (request, reply) => {
+    const { id } = request.params as { id: string };
+    const model = db.prepare('SELECT id FROM models WHERE id = ?').get(id) as any;
+    if (!model) {
+      return reply.status(404).send({ error: 'Model not found' });
+    }
+    db.prepare('UPDATE models SET is_default = 0').run();
+    db.prepare('UPDATE models SET is_default = 1 WHERE id = ?').run(id);
+    return { success: true };
+  });
+
+  app.post('/admin/models/sync', async () => {
+    const result = await syncAllSandboxes();
+    return result;
   });
 }

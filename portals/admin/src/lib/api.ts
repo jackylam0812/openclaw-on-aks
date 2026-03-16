@@ -19,7 +19,7 @@ export async function authFetch(path: string, options: RequestInit = {}) {
   const res = await fetch(`${API_URL}${path}`, {
     ...options,
     headers: {
-      'Content-Type': 'application/json',
+      ...(options.body ? { 'Content-Type': 'application/json' } : {}),
       ...(token ? { Authorization: `Bearer ${token}` } : {}),
       ...options.headers,
     },
@@ -97,5 +97,30 @@ export async function rejectUser(userId: string) {
 
 export async function deleteUser(userId: string) {
   const res = await authFetch(`/admin/users/${userId}`, { method: 'DELETE' });
+  return res.json();
+}
+
+export async function getModels() {
+  const res = await authFetch('/admin/models');
+  return res.json();
+}
+
+export async function addModel(model: { name: string; model_id: string; litellm_model: string; api_base?: string; api_key?: string; api_version?: string; reasoning?: boolean; input_types?: string; context_window?: number; max_tokens?: number }) {
+  const res = await authFetch('/admin/models', { method: 'POST', body: JSON.stringify(model) });
+  return res.json();
+}
+
+export async function deleteModel(id: string) {
+  const res = await authFetch(`/admin/models/${id}`, { method: 'DELETE' });
+  return res.json();
+}
+
+export async function setDefaultModel(id: string) {
+  const res = await authFetch(`/admin/models/${id}/default`, { method: 'PATCH', body: '{}' });
+  return res.json();
+}
+
+export async function syncModels() {
+  const res = await authFetch('/admin/models/sync', { method: 'POST', body: '{}' });
   return res.json();
 }

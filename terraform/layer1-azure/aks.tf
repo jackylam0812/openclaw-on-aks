@@ -44,10 +44,11 @@ resource "azurerm_kubernetes_cluster" "main" {
     # Do NOT combine with NAT Gateway on the same subnet (causes asymmetric routing).
   }
 
-  # Enable Azure Disk CSI driver (Azure Files not used)
+  # Enable Azure Disk + Azure Files CSI drivers
+  # Azure Files is used for sandbox PVCs (ReadWriteMany, survives pod migration)
   storage_profile {
     disk_driver_enabled = true
-    file_driver_enabled = false
+    file_driver_enabled = true
   }
 
   tags = local.tags

@@ -297,13 +297,17 @@ deploy_portals() {
   echo "Waiting for LiteLLM to be ready..."
   kubectl wait --for=condition=Ready pods -l app=litellm -n litellm --timeout=120s
   MASTER_KEY=$(kubectl get secret litellm-masterkey -n litellm -o jsonpath='{.data.masterkey}' | base64 -d)
+  if [ -z "$MASTER_KEY" ]; then
+    echo "  ⚠ Failed to retrieve LiteLLM master key from secret"
+    echo "  Model management via Admin Portal will not work until LITELLM_MASTER_KEY is set"
+  fi
   for attempt in $(seq 1 6); do
     echo "  Generating LiteLLM API key (attempt $attempt)..."
     LITELLM_KEY=$(kubectl run -n litellm gen-portal-key --rm -i --restart=Never --image=curlimages/curl -- \
       curl -s -X POST http://litellm.litellm.svc.cluster.local:4000/key/generate \
       -H "Authorization: Bearer $MASTER_KEY" \
       -H "Content-Type: application/json" \
-      -d '{"models": ["gpt-5.4"], "duration": "365d", "key_alias": "portal-api"}' 2>/dev/null \
+      -d '{"models": [], "duration": "365d", "key_alias": "portal-api"}' 2>/dev/null \
       | grep -o '"key":"[^"]*"' | cut -d'"' -f4)
     [ -n "$LITELLM_KEY" ] && break
     echo "  Key generation failed, waiting 15s for DB migration..."
@@ -317,7 +321,7 @@ deploy_portals() {
   fi
 
   # Deploy portal-api initially (TLS cert and API_BASE_URL will be set after ingress IP is known)
-  sed "s|PORTAL_API_IMAGE|$PORTAL_API_IMAGE|g; s|JWT_SECRET_VALUE|$JWT_SECRET|g; s|LITELLM_API_KEY_VALUE|$LITELLM_KEY|g; s|API_BASE_URL_VALUE|http://localhost:3000|g" \
+  sed "s|PORTAL_API_IMAGE|$PORTAL_API_IMAGE|g; s|JWT_SECRET_VALUE|$JWT_SECRET|g; s|LITELLM_API_KEY_VALUE|$LITELLM_KEY|g; s|LITELLM_MASTER_KEY_VALUE|$MASTER_KEY|g; s|API_BASE_URL_VALUE|http://localhost:3000|g" \
     portals/k8s/api-deployment.yaml | kubectl apply -f -
 
   sed "s|ADMIN_PORTAL_IMAGE|$ADMIN_IMAGE|g; s|PORTAL_API_URL|http://portal-api.portals.svc.cluster.local:3000|g" \
@@ -389,7 +393,7 @@ deploy_portals() {
 
   # Re-deploy portal-api with correct API_BASE_URL and TLS cert
   API_BASE="https://$INGRESS_IP/api"
-  sed "s|PORTAL_API_IMAGE|$PORTAL_API_IMAGE|g; s|JWT_SECRET_VALUE|$JWT_SECRET|g; s|LITELLM_API_KEY_VALUE|$LITELLM_KEY|g; s|API_BASE_URL_VALUE|$API_BASE|g" \
+  sed "s|PORTAL_API_IMAGE|$PORTAL_API_IMAGE|g; s|JWT_SECRET_VALUE|$JWT_SECRET|g; s|LITELLM_API_KEY_VALUE|$LITELLM_KEY|g; s|LITELLM_MASTER_KEY_VALUE|$MASTER_KEY|g; s|API_BASE_URL_VALUE|$API_BASE|g" \
     portals/k8s/api-deployment.yaml | kubectl apply -f -
   kubectl rollout status deployment portal-api -n portals --timeout=120s
 

@@ -30,6 +30,32 @@ try {
   // Column already exists — ignore
 }
 
+// Migration: add LiteLLM columns to models table if missing
+for (const col of [
+  { name: 'litellm_model', def: "''" },
+  { name: 'api_base', def: "''" },
+  { name: 'api_key', def: "''" },
+  { name: 'api_version', def: "''" },
+]) {
+  try {
+    db.exec(`ALTER TABLE models ADD COLUMN ${col.name} TEXT NOT NULL DEFAULT ${col.def}`);
+    console.log(`Migration: added ${col.name} column to models table`);
+  } catch {
+    // Column already exists
+  }
+}
+
+// Seed default model if models table is empty
+const modelCount = (db.prepare('SELECT COUNT(*) as count FROM models').get() as any).count;
+if (modelCount === 0) {
+  db.prepare(
+    'INSERT INTO models (id, name, model_id, litellm_model, api_base, api_key, api_version, reasoning, input_types, context_window, max_tokens, is_default) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
+  ).run(uuid(), 'GPT-5.4', 'gpt-5.4', 'azure/gpt-5.4',
+    '', '', '2025-04-01-preview',
+    1, 'text,image', 200000, 8192, 1);
+  console.log('Seeded default model: gpt-5.4');
+}
+
 // Seed admin user if not exists
 const adminExists = db.prepare('SELECT id FROM users WHERE email = ?').get('admin@openclaw.ai') as { id: string } | undefined;
 if (!adminExists) {

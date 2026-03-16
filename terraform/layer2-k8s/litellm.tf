@@ -57,4 +57,16 @@ resource "helm_release" "litellm" {
     value = local.layer1.foundry_api_key
   }
 
+  # Enable dynamic model management via /model/new API
+  set {
+    name  = "proxy_config.general_settings.store_model_in_db"
+    value = "true"
+    type  = "string"
+  }
+
+  set {
+    name  = "envVars.STORE_MODEL_IN_DB"
+    value = "True"
+  }
+
 }
