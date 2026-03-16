@@ -94,3 +94,8 @@ export async function rejectUser(userId: string) {
   const res = await authFetch(`/admin/approvals/${userId}/reject`, { method: 'POST', body: '{}' });
   return res.json();
 }
+
+export async function deleteUser(userId: string) {
+  const res = await authFetch(`/admin/users/${userId}`, { method: 'DELETE' });
+  return res.json();
+}

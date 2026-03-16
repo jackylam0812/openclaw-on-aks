@@ -267,10 +267,19 @@ deploy_portals() {
   ADMIN_IMAGE="${ACR_NAME}.azurecr.io/openclaw-admin-portal:latest"
   CUSTOMER_IMAGE="${ACR_NAME}.azurecr.io/openclaw-customer-portal:latest"
 
-  # Apply namespace + pvc + RBAC first
+  # Apply namespace + pvc + RBAC + storage class first
   kubectl apply -f portals/k8s/namespace.yaml
   kubectl apply -f portals/k8s/pvc.yaml
   kubectl apply -f portals/k8s/portal-api-rbac.yaml
+  kubectl apply -f portals/k8s/azure-files-sc.yaml
+
+  # Patch Kata RuntimeClass to include CPU overhead so cluster autoscaler
+  # can correctly account for Kata VM hypervisor cost when scheduling pods.
+  # Without this, the scheduler packs multiple Kata pods onto one node, causing
+  # VM creation timeouts (the autoscaler never fires because pods aren't "Pending").
+  echo "Patching Kata RuntimeClass with CPU overhead for autoscaler..."
+  kubectl patch runtimeclass kata-vm-isolation --type=merge \
+    -p '{"overhead":{"podFixed":{"cpu":"1","memory":"600Mi"}}}' 2>/dev/null || true
 
   # Create placeholder TLS secret + configmap so portal-api pod can mount volumes
   # (real cert will be generated later once ingress IP is known)

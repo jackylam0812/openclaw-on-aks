@@ -1,9 +1,9 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { CheckCircle, XCircle, Clock } from 'lucide-react';
+import { CheckCircle, XCircle, Clock, Trash2 } from 'lucide-react';
 import AppLayout from '@/components/layout/app-layout';
-import { getApprovals, approveUser, rejectUser } from '@/lib/api';
+import { getApprovals, approveUser, rejectUser, deleteUser } from '@/lib/api';
 
 interface User {
   id: string;
@@ -56,6 +56,16 @@ export default function ApprovalsPage() {
     setActionLoading(null);
   };
 
+  const handleDelete = async (userId: string, userName: string) => {
+    if (!confirm(`Delete user "${userName}"? This will also delete their sandbox pod and all data. This action cannot be undone.`)) return;
+    setActionLoading(userId);
+    try {
+      await deleteUser(userId);
+      setUsers((prev) => prev.filter((u) => u.id !== userId));
+    } catch {}
+    setActionLoading(null);
+  };
+
   return (
     <AppLayout>
       <div className="mb-6">
@@ -90,9 +100,7 @@ export default function ApprovalsPage() {
               <th className="text-left text-xs text-gray-500 font-medium px-5 py-3">Name</th>
               <th className="text-left text-xs text-gray-500 font-medium px-5 py-3">Email</th>
               <th className="text-left text-xs text-gray-500 font-medium px-5 py-3">Registered</th>
-              {activeTab !== 'approved' && (
-                <th className="text-right text-xs text-gray-500 font-medium px-5 py-3">Actions</th>
-              )}
+              <th className="text-right text-xs text-gray-500 font-medium px-5 py-3">Actions</th>
             </tr>
           </thead>
           <tbody>
@@ -114,16 +122,17 @@ export default function ApprovalsPage() {
                   <td className="px-5 py-3 text-sm text-gray-500">
                     {new Date(user.created_at).toLocaleDateString()}
                   </td>
-                  {activeTab !== 'approved' && (
-                    <td className="px-5 py-3 text-right">
+                  <td className="px-5 py-3 text-right">
                       <div className="flex items-center justify-end gap-2">
-                        <button
-                          onClick={() => handleApprove(user.id)}
-                          disabled={actionLoading === user.id}
-                          className="px-3 py-1.5 text-xs font-medium text-green-400 border border-green-500/20 rounded-lg hover:bg-green-500/10 transition-colors disabled:opacity-50"
-                        >
-                          Approve
-                        </button>
+                        {activeTab !== 'approved' && (
+                          <button
+                            onClick={() => handleApprove(user.id)}
+                            disabled={actionLoading === user.id}
+                            className="px-3 py-1.5 text-xs font-medium text-green-400 border border-green-500/20 rounded-lg hover:bg-green-500/10 transition-colors disabled:opacity-50"
+                          >
+                            Approve
+                          </button>
+                        )}
                         {activeTab === 'pending' && (
                           <button
                             onClick={() => handleReject(user.id)}
@@ -133,9 +142,16 @@ export default function ApprovalsPage() {
                             Reject
                           </button>
                         )}
+                        <button
+                          onClick={() => handleDelete(user.id, user.name)}
+                          disabled={actionLoading === user.id}
+                          className="px-3 py-1.5 text-xs font-medium text-red-400 border border-red-500/20 rounded-lg hover:bg-red-500/10 transition-colors disabled:opacity-50"
+                        >
+                          <Trash2 size={12} className="inline mr-1" />
+                          Delete
+                        </button>
                       </div>
                     </td>
-                  )}
                 </tr>
               ))
             )}

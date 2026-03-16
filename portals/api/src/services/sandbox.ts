@@ -185,8 +185,8 @@ function buildSandboxManifest(sandboxName: string, namespace: string, userId: st
         {
           metadata: { name: 'workspaces-pvc' },
           spec: {
-            storageClassName: 'azure-disk-premium',
-            accessModes: ['ReadWriteOnce'],
+            storageClassName: 'azure-files-premium',
+            accessModes: ['ReadWriteMany'],
             resources: {
               requests: { storage: '2Gi' },
             },

@@ -1,4 +1,5 @@
 import { FastifyInstance } from 'fastify';
+import { execSync } from 'child_process';
 import { requireAdmin } from '../middleware/auth.js';
 import db from '../db/client.js';
 import { getNodes, getPods } from '../services/k8s.js';
@@ -126,5 +127,41 @@ export default async function adminRoutes(app: FastifyInstance) {
 
     db.prepare("UPDATE users SET approval_status = 'rejected' WHERE id = ?").run(userId);
     return { success: true, message: `User ${user.email} rejected` };
+  });
+
+  // --- Delete user ---
+
+  app.delete('/admin/users/:userId', async (request, reply) => {
+    const { userId } = request.params as { userId: string };
+    const user = db.prepare('SELECT id, email, role FROM users WHERE id = ?').get(userId) as any;
+    if (!user) {
+      return reply.status(404).send({ error: 'User not found' });
+    }
+    if (user.role === 'admin') {
+      return reply.status(400).send({ error: 'Cannot delete admin user' });
+    }
+
+    // Delete sandbox pod + Sandbox CR in k8s
+    const sandbox = db.prepare('SELECT pod_name, namespace FROM sandboxes WHERE user_id = ?').get(userId) as any;
+    if (sandbox?.pod_name) {
+      const ns = sandbox.namespace || 'openclaw';
+      try {
+        execSync(`kubectl delete sandbox ${sandbox.pod_name} -n ${ns} --grace-period=10`, {
+          encoding: 'utf-8',
+          timeout: 30000,
+        });
+      } catch (err: any) {
+        console.warn(`Failed to delete sandbox CR ${sandbox.pod_name}: ${err.message}`);
+      }
+    }
+
+    // Delete all DB records for this user
+    db.prepare('DELETE FROM messages WHERE conversation_id IN (SELECT id FROM conversations WHERE user_id = ?)').run(userId);
+    db.prepare('DELETE FROM conversations WHERE user_id = ?').run(userId);
+    db.prepare('DELETE FROM integrations WHERE user_id = ?').run(userId);
+    db.prepare('DELETE FROM sandboxes WHERE user_id = ?').run(userId);
+    db.prepare('DELETE FROM users WHERE id = ?').run(userId);
+
+    return { success: true, message: `User ${user.email} and associated sandbox deleted` };
   });
 }
