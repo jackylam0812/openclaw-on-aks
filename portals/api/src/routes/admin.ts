@@ -248,7 +248,36 @@ export default async function adminRoutes(app: FastifyInstance) {
   });
 
   app.post('/admin/models/sync', async () => {
-    const result = await syncAllSandboxes();
-    return result;
+    syncAllSandboxes().then(r => console.log(`Model sync done: ${r.success} success, ${r.failed} failed`)).catch(e => console.error('Model sync error:', e));
+    return { success: true, message: 'Sync started in background' };
+  });
+
+  // --- Security Control ---
+
+  app.get('/admin/security/soul', async () => {
+    const row = db.prepare("SELECT value, updated_at FROM settings WHERE key = 'soul_md'").get() as any;
+    return { content: row?.value || '', updated_at: row?.updated_at || null };
+  });
+
+  app.put('/admin/security/soul', async (request, reply) => {
+    const { content } = request.body as { content: string };
+    if (content == null) {
+      return reply.status(400).send({ error: 'content is required' });
+    }
+    db.prepare(
+      "INSERT INTO settings (key, value, updated_at) VALUES ('soul_md', ?, CURRENT_TIMESTAMP) ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = CURRENT_TIMESTAMP"
+    ).run(content);
+    return { success: true };
+  });
+
+  app.post('/admin/security/sync', async (request) => {
+    const { content } = request.body as { content?: string };
+    if (content != null) {
+      db.prepare(
+        "INSERT INTO settings (key, value, updated_at) VALUES ('soul_md', ?, CURRENT_TIMESTAMP) ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = CURRENT_TIMESTAMP"
+      ).run(content);
+    }
+    syncAllSandboxes().then(r => console.log(`Security sync done: ${r.success} success, ${r.failed} failed`)).catch(e => console.error('Security sync error:', e));
+    return { success: true, message: 'Saved and sync started in background' };
   });
 }

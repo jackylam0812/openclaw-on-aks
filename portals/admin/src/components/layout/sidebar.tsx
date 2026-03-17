@@ -2,7 +2,7 @@
 
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
-import { LayoutDashboard, Server, Cpu, Users, BarChart2, LogOut, ClipboardCheck } from 'lucide-react';
+import { LayoutDashboard, Server, Cpu, Users, BarChart2, LogOut, ClipboardCheck, Shield } from 'lucide-react';
 import { clearToken } from '@/lib/api';
 
 const navItems = [
@@ -12,6 +12,7 @@ const navItems = [
   { href: '/models', label: 'Models', icon: Cpu },
   { href: '/users', label: 'Users', icon: Users },
   { href: '/monitoring', label: 'Monitoring', icon: BarChart2 },
+  { href: '/security', label: 'Security', icon: Shield },
 ];
 
 export default function Sidebar() {

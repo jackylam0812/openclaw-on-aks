@@ -124,3 +124,18 @@ export async function syncModels() {
   const res = await authFetch('/admin/models/sync', { method: 'POST', body: '{}' });
   return res.json();
 }
+
+export async function getSoulMd() {
+  const res = await authFetch('/admin/security/soul');
+  return res.json();
+}
+
+export async function updateSoulMd(content: string) {
+  const res = await authFetch('/admin/security/soul', { method: 'PUT', body: JSON.stringify({ content }) });
+  return res.json();
+}
+
+export async function syncSoulMd(content: string) {
+  const res = await authFetch('/admin/security/sync', { method: 'POST', body: JSON.stringify({ content }) });
+  return res.json();
+}

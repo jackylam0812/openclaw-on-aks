@@ -9,6 +9,7 @@ const pageTitles: Record<string, string> = {
   '/models': 'Models',
   '/users': 'Users',
   '/monitoring': 'Monitoring',
+  '/security': 'Security Control',
 };
 
 export default function Topbar() {
