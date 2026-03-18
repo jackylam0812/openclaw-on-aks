@@ -228,7 +228,7 @@ function buildStartupCommand(configBase64: string, channels: ChannelConfig = {})
     'chmod 644 /home/node/.openclaw/openclaw.json 2>/dev/null; rm -f /home/node/.openclaw/openclaw.json',
     'cp /tmp/oc-config.json /home/node/.openclaw/openclaw.json',
     'rm -f /tmp/oc-config.json',
-    'chmod 444 /home/node/.openclaw/openclaw.json',
+    'chmod 644 /home/node/.openclaw/openclaw.json',
     'exec node dist/index.js gateway --bind=lan --port 18789 --verbose',
   );
 
@@ -302,8 +302,8 @@ function buildSandboxManifest(sandboxName: string, namespace: string, userId: st
                 { containerPort: 18790 },
               ],
               resources: {
-                requests: { cpu: '1', memory: '2Gi' },
-                limits: { cpu: '2', memory: '4Gi' },
+                requests: { cpu: '500m', memory: '1Gi' },
+                limits: { cpu: '1500m', memory: '3Gi' },
               },
               volumeMounts: [
                 {
