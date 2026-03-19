@@ -1,0 +1,532 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>OpenClaw on AKS</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      background: #0a0a0a;
+      color: #e5e5e5;
+      min-height: 100vh;
+      overflow-x: hidden;
+    }
+    /* Background effects */
+    .bg-glow-1 { position: fixed; top: -200px; right: -100px; width: 600px; height: 600px; background: rgba(147,51,234,0.07); border-radius: 50%; filter: blur(120px); pointer-events: none; }
+    .bg-glow-2 { position: fixed; bottom: -200px; left: -100px; width: 500px; height: 500px; background: rgba(59,130,246,0.05); border-radius: 50%; filter: blur(100px); pointer-events: none; }
+    .bg-glow-3 { position: fixed; top: 50%; left: 50%; width: 800px; height: 400px; background: rgba(147,51,234,0.03); border-radius: 50%; filter: blur(150px); pointer-events: none; transform: translate(-50%, -50%); }
+
+    /* Nav */
+    nav {
+      position: fixed; top: 0; left: 0; right: 0; z-index: 50;
+      backdrop-filter: blur(20px); background: rgba(10,10,10,0.8);
+      border-bottom: 1px solid rgba(255,255,255,0.06);
+    }
+    .nav-inner {
+      max-width: 1280px; margin: 0 auto; padding: 0 32px;
+      display: flex; align-items: center; justify-content: space-between; height: 64px;
+    }
+    .logo {
+      display: flex; align-items: center; gap: 10px; text-decoration: none;
+    }
+    .logo-icon {
+      width: 32px; height: 32px; border-radius: 8px;
+      background: linear-gradient(135deg, #9333ea, #3b82f6);
+      display: flex; align-items: center; justify-content: center;
+      font-size: 16px; color: white;
+    }
+    .logo-text {
+      font-size: 18px; font-weight: 700;
+      background: linear-gradient(to right, #c084fc, #60a5fa);
+      -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+    }
+    .nav-links { display: flex; gap: 24px; align-items: center; }
+    .nav-links a {
+      text-decoration: none; color: #9ca3af; font-size: 14px;
+      transition: color 0.2s;
+    }
+    .nav-links a:hover { color: #e5e5e5; }
+    .nav-btn {
+      padding: 8px 18px; border-radius: 8px; font-size: 13px; font-weight: 500;
+      text-decoration: none; transition: all 0.2s;
+    }
+    .nav-btn-ghost { color: #d1d5db; border: 1px solid rgba(255,255,255,0.1); }
+    .nav-btn-ghost:hover { border-color: rgba(255,255,255,0.2); background: rgba(255,255,255,0.04); }
+    .nav-btn-primary {
+      background: linear-gradient(135deg, #9333ea, #7c3aed);
+      color: white; border: none;
+    }
+    .nav-btn-primary:hover { opacity: 0.9; }
+
+    /* Hero */
+    .hero {
+      max-width: 1280px; margin: 0 auto; padding: 120px 32px 60px;
+      display: grid; grid-template-columns: 1fr 420px; gap: 60px; align-items: start;
+      position: relative;
+    }
+    @media (max-width: 960px) {
+      .hero { grid-template-columns: 1fr; gap: 40px; }
+    }
+    .hero-badge {
+      display: inline-flex; align-items: center; gap: 8px;
+      padding: 6px 14px; border-radius: 20px; font-size: 12px; font-weight: 500;
+      background: rgba(147,51,234,0.1); border: 1px solid rgba(147,51,234,0.2);
+      color: #c084fc; margin-bottom: 20px;
+    }
+    .hero h1 {
+      font-size: 48px; font-weight: 800; line-height: 1.1; margin-bottom: 20px;
+      background: linear-gradient(to bottom right, #ffffff, #a1a1aa);
+      -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+    }
+    .hero h1 span {
+      background: linear-gradient(to right, #c084fc, #60a5fa);
+      -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+    }
+    .hero-desc {
+      font-size: 16px; line-height: 1.7; color: #9ca3af; margin-bottom: 28px;
+    }
+    .hero-stats {
+      display: flex; gap: 32px; margin-bottom: 0;
+    }
+    .hero-stat { text-align: left; }
+    .hero-stat-val {
+      font-size: 28px; font-weight: 700;
+      background: linear-gradient(to right, #c084fc, #60a5fa);
+      -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+    }
+    .hero-stat-label { font-size: 12px; color: #6b7280; margin-top: 2px; }
+
+    /* Auth Card */
+    .auth-card {
+      background: rgba(255,255,255,0.03); backdrop-filter: blur(24px);
+      border: 1px solid rgba(255,255,255,0.08); border-radius: 20px;
+      padding: 32px; position: relative;
+    }
+    .auth-card::before {
+      content: ''; position: absolute; inset: -1px; border-radius: 20px;
+      background: linear-gradient(135deg, rgba(147,51,234,0.15), transparent 50%, rgba(59,130,246,0.1));
+      z-index: -1; pointer-events: none;
+    }
+    .auth-tabs {
+      display: flex; background: rgba(255,255,255,0.04); border-radius: 10px;
+      padding: 4px; margin-bottom: 24px;
+    }
+    .auth-tab {
+      flex: 1; padding: 10px; text-align: center; font-size: 14px; font-weight: 500;
+      border: none; border-radius: 8px; cursor: pointer;
+      background: none; color: #6b7280; transition: all 0.2s;
+    }
+    .auth-tab.active {
+      background: rgba(255,255,255,0.08); color: #e5e5e5;
+    }
+    .auth-form { display: flex; flex-direction: column; gap: 16px; }
+    .form-group { display: flex; flex-direction: column; gap: 6px; }
+    .form-group label { font-size: 13px; color: #9ca3af; font-weight: 500; }
+    .form-group input {
+      padding: 10px 14px; border-radius: 10px; font-size: 14px;
+      background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.08);
+      color: #e5e5e5; outline: none; transition: border-color 0.2s;
+    }
+    .form-group input:focus {
+      border-color: rgba(147,51,234,0.5);
+    }
+    .form-group input::placeholder { color: #4b5563; }
+    .auth-submit {
+      padding: 12px; border: none; border-radius: 10px; font-size: 14px; font-weight: 600;
+      cursor: pointer; transition: all 0.2s;
+      background: linear-gradient(135deg, #9333ea, #7c3aed); color: white;
+    }
+    .auth-submit:hover { opacity: 0.9; }
+    .auth-submit:disabled { opacity: 0.5; cursor: not-allowed; }
+    .auth-error {
+      padding: 10px 14px; border-radius: 8px; font-size: 13px;
+      background: rgba(239,68,68,0.1); border: 1px solid rgba(239,68,68,0.2);
+      color: #fca5a5; display: none;
+    }
+    .auth-error.show { display: block; }
+    .auth-divider {
+      text-align: center; font-size: 12px; color: #4b5563;
+      margin: 4px 0;
+    }
+    .auth-link {
+      text-align: center; font-size: 13px; color: #6b7280;
+    }
+    .auth-link a {
+      color: #c084fc; text-decoration: none; font-weight: 500;
+    }
+    .auth-link a:hover { text-decoration: underline; }
+
+    /* Features */
+    .features {
+      max-width: 1280px; margin: 0 auto; padding: 60px 32px 80px;
+    }
+    .features-title {
+      text-align: center; margin-bottom: 48px;
+    }
+    .features-title h2 {
+      font-size: 32px; font-weight: 700; margin-bottom: 12px;
+      background: linear-gradient(to bottom right, #ffffff, #a1a1aa);
+      -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+    }
+    .features-title p { color: #6b7280; font-size: 15px; }
+    .features-grid {
+      display: grid; grid-template-columns: repeat(3, 1fr); gap: 20px;
+    }
+    @media (max-width: 768px) {
+      .features-grid { grid-template-columns: 1fr; }
+    }
+    .feature-card {
+      background: rgba(255,255,255,0.02); border: 1px solid rgba(255,255,255,0.06);
+      border-radius: 16px; padding: 28px; transition: all 0.3s;
+    }
+    .feature-card:hover {
+      border-color: rgba(147,51,234,0.2); background: rgba(255,255,255,0.03);
+      transform: translateY(-2px);
+    }
+    .feature-icon {
+      width: 44px; height: 44px; border-radius: 12px; display: flex;
+      align-items: center; justify-content: center; font-size: 20px;
+      margin-bottom: 16px;
+    }
+    .feature-icon.purple { background: rgba(147,51,234,0.1); }
+    .feature-icon.blue { background: rgba(59,130,246,0.1); }
+    .feature-icon.green { background: rgba(34,197,94,0.1); }
+    .feature-icon.amber { background: rgba(245,158,11,0.1); }
+    .feature-icon.pink { background: rgba(236,72,153,0.1); }
+    .feature-icon.cyan { background: rgba(6,182,212,0.1); }
+    .feature-card h3 {
+      font-size: 16px; font-weight: 600; color: #e5e5e5; margin-bottom: 8px;
+    }
+    .feature-card p {
+      font-size: 13px; line-height: 1.6; color: #6b7280;
+    }
+
+    /* Architecture */
+    .arch-section {
+      max-width: 1280px; margin: 0 auto; padding: 40px 32px 80px;
+    }
+    .arch-title {
+      text-align: center; margin-bottom: 40px;
+    }
+    .arch-title h2 {
+      font-size: 32px; font-weight: 700; margin-bottom: 12px;
+      background: linear-gradient(to bottom right, #ffffff, #a1a1aa);
+      -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+    }
+    .arch-title p { color: #6b7280; font-size: 15px; }
+    .arch-grid {
+      display: grid; grid-template-columns: repeat(2, 1fr); gap: 20px;
+    }
+    @media (max-width: 768px) { .arch-grid { grid-template-columns: 1fr; } }
+    .arch-card {
+      background: rgba(255,255,255,0.02); border: 1px solid rgba(255,255,255,0.06);
+      border-radius: 16px; padding: 24px;
+    }
+    .arch-card h4 {
+      font-size: 14px; font-weight: 600; color: #c084fc; margin-bottom: 12px;
+      display: flex; align-items: center; gap: 8px;
+    }
+    .arch-card ul {
+      list-style: none; padding: 0;
+    }
+    .arch-card li {
+      font-size: 13px; color: #9ca3af; padding: 4px 0; padding-left: 16px;
+      position: relative;
+    }
+    .arch-card li::before {
+      content: '•'; position: absolute; left: 0; color: #4b5563;
+    }
+
+    /* Footer */
+    footer {
+      border-top: 1px solid rgba(255,255,255,0.06);
+      padding: 32px;
+      text-align: center; font-size: 13px; color: #4b5563;
+    }
+    footer a { color: #9ca3af; text-decoration: none; }
+    footer a:hover { color: #c084fc; }
+
+    /* Hidden */
+    .hidden { display: none !important; }
+  </style>
+</head>
+<body>
+  <div class="bg-glow-1"></div>
+  <div class="bg-glow-2"></div>
+  <div class="bg-glow-3"></div>
+
+  <!-- Nav -->
+  <nav>
+    <div class="nav-inner">
+      <a class="logo" href="/">
+        <div class="logo-icon">🐾</div>
+        <span class="logo-text">OpenClaw on AKS</span>
+      </a>
+      <div class="nav-links">
+        <a href="/admin" class="nav-btn nav-btn-ghost">Admin Portal</a>
+      </div>
+    </div>
+  </nav>
+
+  <!-- Hero -->
+  <section class="hero">
+    <div>
+      <div class="hero-badge">☁️ Azure 原生 · Kata 隔离 · 多租户 AI Agent 平台</div>
+      <h1>在 AKS 上运行<br/><span>OpenClaw</span> 的<br/>完整蓝图</h1>
+      <p class="hero-desc">
+        OpenClaw on AKS 是一套完整的生产级参考架构，将 OpenClaw AI Agent 平台部署到 Azure Kubernetes Service，结合 Kata Containers 强隔离沙箱、LiteLLM 统一模型代理，构建可多租户、可隔离、可扩展的 AI Agent 平台基础设施。
+      </p>
+      <div class="hero-stats">
+        <div class="hero-stat">
+          <div class="hero-stat-val">Kata VM</div>
+          <div class="hero-stat-label">强隔离运行时</div>
+        </div>
+        <div class="hero-stat">
+          <div class="hero-stat-val">GPT-5.4</div>
+          <div class="hero-stat-label">Azure OpenAI</div>
+        </div>
+        <div class="hero-stat">
+          <div class="hero-stat-val">Multi-Tenant</div>
+          <div class="hero-stat-label">多租户架构</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Auth Card -->
+    <div class="auth-card">
+      <div class="auth-tabs">
+        <button class="auth-tab active" onclick="switchTab('signin')">登录</button>
+        <button class="auth-tab" onclick="switchTab('register')">注册</button>
+      </div>
+
+      <div id="auth-error" class="auth-error"></div>
+
+      <!-- Sign In Form -->
+      <form id="signin-form" class="auth-form" onsubmit="handleSignIn(event)">
+        <div class="form-group">
+          <label>邮箱</label>
+          <input type="email" id="signin-email" placeholder="you@example.com" required />
+        </div>
+        <div class="form-group">
+          <label>密码</label>
+          <input type="password" id="signin-password" placeholder="输入密码" required />
+        </div>
+        <button type="submit" class="auth-submit" id="signin-btn">登录</button>
+        <p class="auth-link">还没有账号？<a href="#" onclick="switchTab('register'); return false;">立即注册</a></p>
+      </form>
+
+      <!-- Register Form -->
+      <form id="register-form" class="auth-form hidden" onsubmit="handleRegister(event)">
+        <div class="form-group">
+          <label>姓名</label>
+          <input type="text" id="reg-name" placeholder="您的姓名" required />
+        </div>
+        <div class="form-group">
+          <label>邮箱</label>
+          <input type="email" id="reg-email" placeholder="you@example.com" required />
+        </div>
+        <div class="form-group">
+          <label>密码</label>
+          <input type="password" id="reg-password" placeholder="设置密码 (至少6位)" required minlength="6" />
+        </div>
+        <button type="submit" class="auth-submit" id="reg-btn">注册</button>
+        <p class="auth-link">已有账号？<a href="#" onclick="switchTab('signin'); return false;">立即登录</a></p>
+      </form>
+    </div>
+  </section>
+
+  <!-- Features -->
+  <section class="features">
+    <div class="features-title">
+      <h2>核心能力</h2>
+      <p>不只是跑起来，而是构建一个可多租户、可隔离、可扩展的 AI Agent 平台基础设施</p>
+    </div>
+    <div class="features-grid">
+      <div class="feature-card">
+        <div class="feature-icon purple">🛡️</div>
+        <h3>Kata 强隔离沙箱</h3>
+        <p>每个 Agent Sandbox 运行在 Kata 隔离运行时中，具备比普通容器更强的安全边界，适合 AI Agent 高风险任务执行场景。</p>
+      </div>
+      <div class="feature-card">
+        <div class="feature-icon blue">🔀</div>
+        <h3>LiteLLM 统一模型接入</h3>
+        <p>通过 LiteLLM 提供 OpenAI 兼容 API，向下对接 Azure OpenAI / AI Foundry 的 GPT-5.4，统一模型访问入口，支持多模型扩展。</p>
+      </div>
+      <div class="feature-card">
+        <div class="feature-icon green">🏢</div>
+        <h3>多租户平台入口</h3>
+        <p>Admin Portal 管理平台，Customer Portal 提供用户注册、登录、聊天与渠道集成，Portal API 作为统一后端。</p>
+      </div>
+      <div class="feature-card">
+        <div class="feature-icon amber">⚡</div>
+        <h3>动态子代理隔离</h3>
+        <p>支持动态创建短生命周期 Subagent Sandbox，每个子任务独立沙箱运行，带 TTL 自动回收，最多 5 个并发子代理。</p>
+      </div>
+      <div class="feature-card">
+        <div class="feature-icon pink">💬</div>
+        <h3>多渠道集成</h3>
+        <p>支持 Slack、Feishu、Telegram 等 IM 渠道直接接入用户 Sandbox，实现端到端 Agent 交互。</p>
+      </div>
+      <div class="feature-card">
+        <div class="feature-icon cyan">☁️</div>
+        <h3>Azure 原生设计</h3>
+        <p>Terraform 管理所有 Azure 资源，AKS Managed Identity、ACR、Azure AI Foundry，一套完整 Azure 原生技术栈。</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- Architecture -->
+  <section class="arch-section">
+    <div class="arch-title">
+      <h2>架构设计</h2>
+      <p>系统采用分层设计，从 Azure 基础设施到 Kubernetes 平台，每层职责清晰</p>
+    </div>
+    <div class="arch-grid">
+      <div class="arch-card">
+        <h4>🏗️ Terraform 两层架构</h4>
+        <ul>
+          <li>Layer 1 (Azure)：VNet、AKS、ACR、AI Foundry、Key Vault</li>
+          <li>Layer 2 (K8s)：命名空间、StorageClass、LiteLLM、Portals</li>
+          <li>避免 AKS 创建前 K8s Provider 初始化失败的经典问题</li>
+        </ul>
+      </div>
+      <div class="arch-card">
+        <h4>🖥️ 节点池设计</h4>
+        <ul>
+          <li>System Pool：承载通用组件 (Standard_D4s_v5)</li>
+          <li>Kata Pool：承载高隔离 Sandbox (支持嵌套虚拟化)</li>
+          <li>调度策略隔离工作负载，确保安全边界</li>
+        </ul>
+      </div>
+      <div class="arch-card">
+        <h4>🔒 沙箱隔离设计</h4>
+        <ul>
+          <li>每个用户独立 Pod、网络命名空间、持久卷 (~2Gi)</li>
+          <li>Kata 微 VM 隔离 — 独立内核，强隔离边界</li>
+          <li>Sandbox CRD 声明式管理，状态可控</li>
+        </ul>
+      </div>
+      <div class="arch-card">
+        <h4>🌐 网络设计</h4>
+        <ul>
+          <li>Azure CNI Overlay — Pod CIDR 与 VNet 解耦</li>
+          <li>Calico Network Policy — Pod 级别流量控制</li>
+          <li>NGINX Ingress 统一入口，externalTrafficPolicy=Local</li>
+        </ul>
+      </div>
+    </div>
+  </section>
+
+  <!-- Footer -->
+  <footer>
+    <p>
+      OpenClaw on AKS — Azure 原生多租户 AI Agent 平台蓝图
+    </p>
+  </footer>
+
+  <script>
+    const API_URL = '/api';
+
+    function switchTab(tab) {
+      document.querySelectorAll('.auth-tab').forEach(t => t.classList.remove('active'));
+      document.getElementById('auth-error').classList.remove('show');
+      if (tab === 'signin') {
+        document.querySelectorAll('.auth-tab')[0].classList.add('active');
+        document.getElementById('signin-form').classList.remove('hidden');
+        document.getElementById('register-form').classList.add('hidden');
+      } else {
+        document.querySelectorAll('.auth-tab')[1].classList.add('active');
+        document.getElementById('signin-form').classList.add('hidden');
+        document.getElementById('register-form').classList.remove('hidden');
+      }
+    }
+
+    function showError(msg) {
+      const el = document.getElementById('auth-error');
+      el.textContent = msg;
+      el.classList.add('show');
+    }
+
+    async function handleSignIn(e) {
+      e.preventDefault();
+      const btn = document.getElementById('signin-btn');
+      btn.disabled = true;
+      btn.textContent = '登录中...';
+      document.getElementById('auth-error').classList.remove('show');
+      try {
+        const email = document.getElementById('signin-email').value;
+        const password = document.getElementById('signin-password').value;
+        const res = await fetch(`${API_URL}/auth/login`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ email, password })
+        });
+        const data = await res.json();
+        if (!res.ok) { showError(data.error || '登录失败'); return; }
+        localStorage.setItem('token', data.token);
+        localStorage.setItem('user', JSON.stringify(data.user));
+        if (data.user.role === 'admin') {
+          window.location.href = '/admin';
+        } else if (data.user.approval_status === 'approved') {
+          window.location.href = '/app/chat';
+        } else {
+          window.location.href = '/app/pending';
+        }
+      } catch (err) {
+        showError('网络错误，请稍后重试');
+      } finally {
+        btn.disabled = false;
+        btn.textContent = '登录';
+      }
+    }
+
+    async function handleRegister(e) {
+      e.preventDefault();
+      const btn = document.getElementById('reg-btn');
+      btn.disabled = true;
+      btn.textContent = '注册中...';
+      document.getElementById('auth-error').classList.remove('show');
+      try {
+        const name = document.getElementById('reg-name').value;
+        const email = document.getElementById('reg-email').value;
+        const password = document.getElementById('reg-password').value;
+        const res = await fetch(`${API_URL}/auth/register`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ name, email, password })
+        });
+        const data = await res.json();
+        if (!res.ok) { showError(data.error || '注册失败'); return; }
+        localStorage.setItem('token', data.token);
+        localStorage.setItem('user', JSON.stringify(data.user));
+        window.location.href = '/app/pending';
+      } catch (err) {
+        showError('网络错误，请稍后重试');
+      } finally {
+        btn.disabled = false;
+        btn.textContent = '注册';
+      }
+    }
+
+    // Auto-redirect if already logged in
+    (function checkAuth() {
+      const token = localStorage.getItem('token');
+      const user = localStorage.getItem('user');
+      if (token && user) {
+        try {
+          const u = JSON.parse(user);
+          if (u.role === 'admin') {
+            window.location.href = '/admin';
+          } else if (u.approval_status === 'approved') {
+            window.location.href = '/app/chat';
+          } else {
+            window.location.href = '/app/pending';
+          }
+        } catch {}
+      }
+    })();
+  </script>
+</body>
+</html>

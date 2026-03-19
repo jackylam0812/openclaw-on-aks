@@ -76,7 +76,7 @@ export default async function adminRoutes(app: FastifyInstance) {
     const { status } = request.query as { status?: string };
     const filterStatus = status || 'pending';
     const users = db.prepare(
-      "SELECT id, email, name, role, approval_status, created_at FROM users WHERE approval_status = ? AND role != 'admin' ORDER BY created_at DESC"
+      "SELECT u.id, u.email, u.name, u.role, u.approval_status, u.created_at, s.runtime_type FROM users u LEFT JOIN sandboxes s ON u.id = s.user_id WHERE u.approval_status = ? AND u.role != 'admin' ORDER BY u.created_at DESC"
     ).all(filterStatus);
     return users;
   });
@@ -129,6 +129,42 @@ export default async function adminRoutes(app: FastifyInstance) {
 
     db.prepare("UPDATE users SET approval_status = 'rejected' WHERE id = ?").run(userId);
     return { success: true, message: `User ${user.email} rejected` };
+  });
+
+  // --- Change sandbox runtime type ---
+
+  app.patch('/admin/sandboxes/:userId/runtime', async (request, reply) => {
+    const { userId } = request.params as { userId: string };
+    const { runtime_type } = (request.body as { runtime_type?: string }) || {};
+    const newRuntimeType = runtime_type === 'standard' ? 'standard' : 'kata';
+
+    const user = db.prepare('SELECT id, email FROM users WHERE id = ?').get(userId) as any;
+    if (!user) {
+      return reply.status(404).send({ error: 'User not found' });
+    }
+
+    const sandbox = db.prepare('SELECT id, pod_name, namespace, runtime_type FROM sandboxes WHERE user_id = ?').get(userId) as any;
+    if (!sandbox) {
+      return reply.status(404).send({ error: 'Sandbox not found for this user' });
+    }
+
+    if (sandbox.runtime_type === newRuntimeType) {
+      return reply.status(400).send({ error: `Sandbox is already using ${newRuntimeType} runtime` });
+    }
+
+    // Update DB
+    db.prepare('UPDATE sandboxes SET runtime_type = ?, status = ? WHERE user_id = ?').run(newRuntimeType, 'provisioning', userId);
+
+    // Delete old sandbox and re-provision with new runtime type
+    if (sandbox.pod_name) {
+      deleteSandbox(sandbox.pod_name, sandbox.namespace || 'openclaw');
+    }
+
+    provisionSandbox(userId, user.email, newRuntimeType).catch((err) => {
+      console.error(`Failed to re-provision sandbox for ${user.email} with runtime ${newRuntimeType}:`, err);
+    });
+
+    return { success: true, message: `Sandbox for ${user.email} switching to ${newRuntimeType} runtime` };
   });
 
   // --- Delete user ---

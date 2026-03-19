@@ -8,6 +8,7 @@ interface Node {
   name: string;
   status: string;
   roles: string;
+  pool: string;
   cpu: string;
   memory: string;
   kubeletVersion: string;
@@ -19,6 +20,7 @@ interface Pod {
   status: string;
   restarts: number;
   age: string;
+  nodeName?: string;
 }
 
 export default function ClusterPage() {
@@ -51,15 +53,24 @@ export default function ClusterPage() {
             >
               <div className="flex items-center justify-between mb-2">
                 <span className="text-sm font-medium text-gray-200 truncate">{node.name}</span>
-                <span
-                  className={`text-xs px-2 py-0.5 rounded-full ${
-                    node.status === 'Ready'
-                      ? 'bg-green-500/10 text-green-400'
-                      : 'bg-yellow-500/10 text-yellow-400'
-                  }`}
-                >
-                  {node.status}
-                </span>
+                <div className="flex items-center gap-2">
+                  <span className={`text-xs px-2 py-0.5 rounded-full ${
+                    node.pool === 'kata'
+                      ? 'bg-blue-500/10 text-blue-400 border border-blue-500/20'
+                      : 'bg-amber-500/10 text-amber-400 border border-amber-500/20'
+                  }`}>
+                    {node.pool === 'kata' ? 'Kata VM' : 'System'}
+                  </span>
+                  <span
+                    className={`text-xs px-2 py-0.5 rounded-full ${
+                      node.status === 'Ready'
+                        ? 'bg-green-500/10 text-green-400'
+                        : 'bg-yellow-500/10 text-yellow-400'
+                    }`}
+                  >
+                    {node.status}
+                  </span>
+                </div>
               </div>
               <div className="space-y-1 text-xs text-gray-500">
                 <p>Role: {node.roles || 'worker'}</p>
@@ -96,12 +107,13 @@ export default function ClusterPage() {
                 <th className="text-left px-4 py-3 text-gray-500 font-medium">Name</th>
                 <th className="text-left px-4 py-3 text-gray-500 font-medium">Status</th>
                 <th className="text-left px-4 py-3 text-gray-500 font-medium">Restarts</th>
+                <th className="text-left px-4 py-3 text-gray-500 font-medium">Node</th>
               </tr>
             </thead>
             <tbody>
               {filteredPods.length === 0 ? (
                 <tr>
-                  <td colSpan={4} className="px-4 py-8 text-center text-gray-600">
+                  <td colSpan={5} className="px-4 py-8 text-center text-gray-600">
                     No pods found
                   </td>
                 </tr>
@@ -124,6 +136,7 @@ export default function ClusterPage() {
                       </span>
                     </td>
                     <td className="px-4 py-3 text-gray-500">{pod.restarts ?? 0}</td>
+                    <td className="px-4 py-3 text-gray-500">{pod.nodeName || '-'}</td>
                   </tr>
                 ))
               )}

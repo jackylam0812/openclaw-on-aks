@@ -100,6 +100,11 @@ export async function deleteUser(userId: string) {
   return res.json();
 }
 
+export async function changeRuntimeType(userId: string, runtimeType: string) {
+  const res = await authFetch(`/admin/sandboxes/${userId}/runtime`, { method: 'PATCH', body: JSON.stringify({ runtime_type: runtimeType }) });
+  return res.json();
+}
+
 export async function getModels() {
   const res = await authFetch('/admin/models');
   return res.json();

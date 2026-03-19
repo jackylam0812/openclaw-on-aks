@@ -75,7 +75,16 @@ export default function DashboardPage() {
           <div className="space-y-3">
             {overview.nodes.map((node: any, i: number) => (
               <div key={i} className="flex items-center justify-between py-2 border-b border-white/[0.04] last:border-0">
-                <span className="text-sm text-gray-200">{node.name}</span>
+                <div className="flex items-center gap-2">
+                  <span className="text-sm text-gray-200">{node.name}</span>
+                  <span className={`text-xs px-2 py-0.5 rounded-full ${
+                    node.pool === 'kata'
+                      ? 'bg-blue-500/10 text-blue-400 border border-blue-500/20'
+                      : 'bg-amber-500/10 text-amber-400 border border-amber-500/20'
+                  }`}>
+                    {node.pool === 'kata' ? 'Kata VM' : 'System'}
+                  </span>
+                </div>
                 <div className="flex items-center gap-3">
                   <span className="text-xs text-gray-500">CPU: {node.cpu}</span>
                   <span className="text-xs text-gray-500">Mem: {node.memory}</span>
