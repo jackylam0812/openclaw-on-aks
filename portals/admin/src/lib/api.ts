@@ -85,8 +85,8 @@ export async function getApprovalCounts() {
   return res.json();
 }
 
-export async function approveUser(userId: string) {
-  const res = await authFetch(`/admin/approvals/${userId}/approve`, { method: 'POST', body: '{}' });
+export async function approveUser(userId: string, runtimeType: string = 'kata') {
+  const res = await authFetch(`/admin/approvals/${userId}/approve`, { method: 'POST', body: JSON.stringify({ runtime_type: runtimeType }) });
   return res.json();
 }
 

@@ -6,3 +6,4 @@ terraform-states/
 .platform-secrets
 portals/api/node_modules/
 portals/api/dist/
+.DS_Store

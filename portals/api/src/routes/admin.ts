@@ -94,6 +94,8 @@ export default async function adminRoutes(app: FastifyInstance) {
 
   app.post('/admin/approvals/:userId/approve', async (request, reply) => {
     const { userId } = request.params as { userId: string };
+    const { runtime_type } = (request.body as { runtime_type?: string }) || {};
+    const runtimeType = runtime_type === 'standard' ? 'standard' : 'kata';
     const user = db.prepare('SELECT id, email, approval_status FROM users WHERE id = ?').get(userId) as any;
     if (!user) {
       return reply.status(404).send({ error: 'User not found' });
@@ -107,15 +109,15 @@ export default async function adminRoutes(app: FastifyInstance) {
     // Create sandbox record and provision
     const existingSandbox = db.prepare('SELECT id FROM sandboxes WHERE user_id = ?').get(userId);
     if (!existingSandbox) {
-      db.prepare('INSERT INTO sandboxes (id, user_id, status) VALUES (?, ?, ?)').run(
-        uuid(), userId, 'provisioning'
+      db.prepare('INSERT INTO sandboxes (id, user_id, status, runtime_type) VALUES (?, ?, ?, ?)').run(
+        uuid(), userId, 'provisioning', runtimeType
       );
     }
-    provisionSandbox(userId, user.email).catch((err) => {
+    provisionSandbox(userId, user.email, runtimeType).catch((err) => {
       console.error(`Failed to provision sandbox for ${user.email}:`, err);
     });
 
-    return { success: true, message: `User ${user.email} approved and sandbox provisioning started` };
+    return { success: true, message: `User ${user.email} approved and sandbox provisioning started (runtime: ${runtimeType})` };
   });
 
   app.post('/admin/approvals/:userId/reject', async (request, reply) => {

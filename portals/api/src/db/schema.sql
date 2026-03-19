@@ -62,6 +62,7 @@ CREATE TABLE IF NOT EXISTS sandboxes (
   pod_name TEXT,
   namespace TEXT DEFAULT 'openclaw',
   status TEXT DEFAULT 'provisioning',
+  runtime_type TEXT DEFAULT 'kata',
   endpoint TEXT,
   created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
   ready_at DATETIME

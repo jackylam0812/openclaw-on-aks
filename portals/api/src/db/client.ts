@@ -45,6 +45,14 @@ for (const col of [
   }
 }
 
+// Migration: add runtime_type column to sandboxes table if missing
+try {
+  db.exec("ALTER TABLE sandboxes ADD COLUMN runtime_type TEXT DEFAULT 'kata'");
+  console.log('Migration: added runtime_type column to sandboxes table');
+} catch {
+  // Column already exists
+}
+
 // Seed default model if models table is empty
 const modelCount = (db.prepare('SELECT COUNT(*) as count FROM models').get() as any).count;
 if (modelCount === 0) {
