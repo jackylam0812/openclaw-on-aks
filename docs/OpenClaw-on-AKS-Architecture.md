@@ -1,7 +1,7 @@
 # OpenClaw on AKS — Architecture & Technical Deep Dive
 
 > **Repository**: github.com/jackylam0812/openclaw-on-aks
-> **Last Updated**: 2026-03-15
+> **Last Updated**: 2026-03-19
 
 ---
 
@@ -27,9 +27,11 @@
    - 5.3 [Customer Portal (Next.js)](#53-customer-portal-nextjs)
 6. [OpenClaw Sandbox Architecture](#6-openclaw-sandbox-architecture)
    - 6.1 [Sandbox CRD & Manifest](#61-sandbox-crd--manifest)
-   - 6.2 [Provisioning Flow](#62-provisioning-flow)
-   - 6.3 [Chat Routing](#63-chat-routing)
-   - 6.4 [Resource Profile & Capacity Planning](#64-resource-profile--capacity-planning)
+   - 6.2 [Runtime Type Selection](#62-runtime-type-selection)
+   - 6.3 [Provisioning Flow](#63-provisioning-flow)
+   - 6.4 [Chat Routing](#64-chat-routing)
+   - 6.5 [Gateway Management (Standard Pod)](#65-gateway-management-standard-pod)
+   - 6.6 [Resource Profile & Capacity Planning](#66-resource-profile--capacity-planning)
 7. [IM Integrations](#7-im-integrations)
    - 7.1 [Telegram](#71-telegram)
    - 7.2 [Feishu (飞书)](#72-feishu-飞书)
@@ -137,13 +139,14 @@ AKS Cluster
 │   ├── ingress-nginx/      — NGINX Ingress Controller
 │   ├── portals/             — Portal API, Admin Portal, Customer Portal
 │   ├── litellm/             — LiteLLM Proxy + PostgreSQL
-│   └── agent-sandbox-system/— Sandbox CRD Controller
+│   ├── agent-sandbox-system/— Sandbox CRD Controller
+│   └── openclaw/            — Standard Pod sandboxes (no Kata isolation)
+│       └── oc-1f03183f (user@example.com, Standard Pod)
 │
 └── Kata Node Pool (Standard_D4s_v5, 1-10 nodes)
     └── openclaw/            — Per-user Kata-isolated sandbox pods
-        ├── oc-fed9c3d3 (admin@openclaw.ai)
-        ├── oc-a8515d82 (jackylam0083@gmail.com)
-        └── oc-d99e0fad (24009026@qq.com)
+        ├── oc-fed9c3d3 (admin@openclaw.ai, Kata VM)
+        └── oc-a8515d82 (jackylam0083@gmail.com, Kata VM)
 ```
 
 ---
@@ -412,6 +415,7 @@ The Admin Portal is a Next.js application served at `/admin` with a dark-themed 
 |------|------|----------|
 | Login | `/admin/login` | Email + password authentication |
 | Dashboard | `/admin/dashboard` | Total Users, Active Sandboxes, Cluster Nodes, Sandbox Pods (with live counts); node list with CPU/memory/status |
+| Approvals | `/admin/approvals` | Pending/Rejected/Approved tabs; Approve with runtime type selection modal (Kata VM or Standard Pod); Reject/Delete actions |
 | Users | `/admin/users` | User table (name, email, role badge, sandbox status badge, join date) |
 | Cluster | `/admin/cluster` | Node detail cards (name, status, roles, CPU, memory, kubelet version); pods table with namespace filter |
 | Monitoring | `/admin/monitoring` | Sandbox overview cards (total/active/provisioning/failed); sandbox detail table |
@@ -448,13 +452,15 @@ The Customer Portal is a Next.js application served at `/app` providing the end-
 
 ### 6.1 Sandbox CRD & Manifest
 
-Each user gets a dedicated sandbox defined as a Kubernetes Custom Resource:
+Each user gets a dedicated sandbox defined as a Kubernetes Custom Resource. The manifest varies by **runtime type** (Kata VM or Standard Pod), selected at user approval time.
+
+**Kata VM Manifest** (hardware-level isolation):
 
 ```yaml
 apiVersion: agents.x-k8s.io/v1alpha1
 kind: Sandbox
 metadata:
-  name: oc-<userId-first-8-chars>     # e.g. oc-fed9c3d3
+  name: oc-<userId-first-8-chars>
   namespace: openclaw
   labels:
     openclaw.ai/user-id: <first 8 chars>
@@ -481,107 +487,143 @@ spec:
       containers:
         - name: openclaw
           image: ghcr.io/openclaw/openclaw:latest
+          env:
+            - name: OC_LITELLM_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: oc-<userId>-secrets
+                  key: OC_LITELLM_API_KEY
+            # ... other env vars from Secret
           command: [sh, -c]
           args:
             - |
               mkdir -p /home/node/.openclaw/workspace
-              echo '<base64-config>' | base64 -d > /home/node/.openclaw/openclaw.json
-              exec node dist/index.js gateway --bind=lan --port 18789 --allow-unconfigured --verbose
+              echo '<base64-config-with-placeholders>' | base64 -d > /tmp/oc-config.json
+              sed -i "s|__OC_LITELLM_API_KEY__|$OC_LITELLM_API_KEY|g" /tmp/oc-config.json
+              # ... other placeholder replacements
+              cp /tmp/oc-config.json /home/node/.openclaw/openclaw.json
+              chmod 644 /home/node/.openclaw/openclaw.json
+              exec node dist/index.js gateway --bind=lan --port 18789 --verbose
           ports:
-            - containerPort: 18789   # Gateway HTTP/WebSocket
-            - containerPort: 18790   # Control UI
+            - containerPort: 18789
+            - containerPort: 18790
           resources:
-            requests: { cpu: "1", memory: "2Gi" }
-            limits:   { cpu: "2", memory: "4Gi" }
-          securityContext:
-            allowPrivilegeEscalation: false
-            readOnlyRootFilesystem: false
-            runAsNonRoot: true
-            capabilities: { drop: [ALL] }
+            requests: { cpu: "500m", memory: "1Gi" }
+            limits:   { cpu: "1500m", memory: "3Gi" }
           volumeMounts:
             - name: workspaces-pvc
               mountPath: /home/node/.openclaw
   volumeClaimTemplates:
     - metadata: { name: workspaces-pvc }
       spec:
-        storageClassName: azure-disk-premium
-        accessModes: [ReadWriteOnce]
+        storageClassName: azure-files-premium
+        accessModes: [ReadWriteMany]
         resources:
           requests: { storage: 2Gi }
 ```
 
-**OpenClaw Configuration** (injected as base64-encoded JSON):
+**Standard Pod Manifest** (container-level isolation):
 
-```json
-{
-  "models": {
-    "providers": {
-      "litellm": {
-        "baseUrl": "http://litellm.litellm.svc.cluster.local:4000",
-        "apiKey": "<LITELLM_API_KEY>",
-        "api": "openai-completions",
-        "models": [{
-          "id": "gpt-5.4",
-          "name": "GPT-5.4 (LiteLLM)",
-          "reasoning": true,
-          "input": ["text", "image"],
-          "contextWindow": 200000,
-          "maxTokens": 8192
-        }]
-      }
-    }
-  },
-  "agents": {
-    "defaults": {
-      "model": { "primary": "litellm/gpt-5.4" },
-      "workspace": "/home/node/.openclaw/workspace"
-    }
-  },
-  "gateway": {
-    "port": 18789,
-    "mode": "local",
-    "bind": "lan",
-    "auth": { "mode": "token", "token": "<LITELLM_API_KEY>" },
-    "controlUi": { "dangerouslyAllowHostHeaderOriginFallback": true },
-    "http": {
-      "endpoints": {
-        "chatCompletions": { "enabled": true }
-      }
-    }
-  },
-  "channels": { /* Telegram/Feishu/Slack configs if connected */ },
-  "plugins":  { /* Enabled channel plugins */ }
-}
+Standard Pod manifests omit `runtimeClassName`, `nodeSelector`, and `tolerations`, so pods run on the system node pool. The startup command also differs — the gateway runs as a **background process** (not PID 1), with restart scripts injected:
+
+```yaml
+spec:
+  podTemplate:
+    spec:
+      # No runtimeClassName — uses default runc
+      # No nodeSelector — schedules on system node pool
+      # No tolerations — no kata taint toleration needed
+      containers:
+        - name: openclaw
+          command: [sh, -c]
+          args:
+            - |
+              # ... config setup same as Kata ...
+              # Create gateway management scripts
+              mkdir -p /home/node/scripts
+              echo '<start-script-b64>' | base64 -d > /home/node/scripts/start.sh
+              echo '<restart-script-b64>' | base64 -d > /home/node/scripts/restart.sh
+              echo '<stop-script-b64>' | base64 -d > /home/node/scripts/stop.sh
+              chmod +x /home/node/scripts/*.sh
+              # Append gateway instructions to AGENTS.md
+              grep -q "scripts/restart.sh" AGENTS.md 2>/dev/null || echo '<agents-append-b64>' | base64 -d >> AGENTS.md
+              # Start gateway in background (allows restart without pod recreation)
+              openclaw gateway run --bind=lan --port 18789 --verbose &
+              GATEWAY_PID=$!
+              trap "pkill -x openclaw-gateway 2>/dev/null; exit 0" TERM INT
+              # Keep PID 1 (shell) alive
+              while true; do sleep 3600 & wait $!; done
 ```
 
-### 6.2 Provisioning Flow
+**Key Differences**:
+
+| Aspect | Kata VM | Standard Pod |
+|--------|---------|-------------|
+| `runtimeClassName` | `kata-vm-isolation` | _(omitted, uses runc)_ |
+| `nodeSelector` | Kata node pool | _(omitted, system pool)_ |
+| `tolerations` | `kata=true:NoSchedule` | _(omitted)_ |
+| Gateway process | PID 1 via `exec` | Background process, shell as PID 1 |
+| Restart scripts | None | `/home/node/scripts/{start,restart,stop}.sh` |
+| AGENTS.md | Unmodified | Auto-appended with gateway management section |
+
+**Secret Management**:
+
+Credentials (API keys, IM tokens) are stored in a Kubernetes Secret (`<sandbox-name>-secrets`) and injected as environment variables. The OpenClaw config JSON uses placeholders (e.g., `__OC_LITELLM_API_KEY__`) that are replaced at pod startup via `sed`:
 
 ```
-User Registration / Admin Seed
+Config JSON → base64 encode → write to file → sed replace placeholders with env vars → copy to final location
+```
+
+This ensures no secrets are stored in the Sandbox CRD manifest or ConfigMaps.
+
+### 6.2 Runtime Type Selection
+
+When an Admin approves a user via the Admin Portal's **Approvals** page, a modal dialog presents two options:
+
+| Option | Description | Icon |
+|--------|-------------|------|
+| **Kata VM Isolation** | Hardware-level VM isolation via Microsoft Hypervisor. Recommended for production and sensitive workloads. | Shield |
+| **Standard Pod** | Container-level isolation. Suitable for development and testing. | Box |
+
+The selected `runtime_type` ('kata' or 'standard') is stored in the `sandboxes` table and flows through the entire provisioning chain:
+
+```
+Admin selects runtime type → POST /admin/users/:id/approve { runtime_type }
+  → INSERT INTO sandboxes (runtime_type)
+  → provisionSandbox(userId, email, runtimeType)
+    → buildSandboxManifest(..., runtimeType)
+      → buildStartupCommand(..., runtimeType)
+```
+
+### 6.3 Provisioning Flow
+
+```
+User Registration → Admin Approval (with runtime type selection)
          │
          ▼
   Create sandbox record
-  (status: 'provisioning')
+  (status: 'provisioning', runtime_type: 'kata'|'standard')
          │
          ▼
   Server startup detects
   'provisioning' sandboxes
          │
          ▼
-  provisionSandbox(userId, email)
+  provisionSandbox(userId, email, runtimeType)
          │
          ├── 1. Generate sandbox name: oc-<userId-8chars>
          ├── 2. Read user's connected IM channels from DB
-         ├── 3. Build OpenClaw config JSON
-         ├── 4. Build Sandbox CRD manifest
-         ├── 5. Write manifest to temp file
-         ├── 6. kubectl apply -f <manifest>
-         ├── 7. Update DB: endpoint = http://oc-<id>.openclaw.svc.cluster.local:18789
-         └── 8. Update DB: status = 'creating'
+         ├── 3. Build OpenClaw config JSON (with placeholders, no real secrets)
+         ├── 4. Build K8s Secret with real credentials
+         ├── 5. Build Sandbox CRD manifest (varies by runtimeType)
+         ├── 6. kubectl apply -f <secret-manifest>
+         ├── 7. kubectl apply -f <sandbox-manifest>
+         ├── 8. Update DB: endpoint = http://oc-<id>.openclaw.svc.cluster.local:18789
+         └── 9. Update DB: status = 'creating'
                   │
                   ▼
          Sandbox Controller creates pod
-         on Kata node pool
+         (Kata node pool or system pool based on runtimeType)
                   │
                   ▼
          Pod enters 'Running' state
@@ -594,7 +636,7 @@ User Registration / Admin Seed
 
 **Status Lifecycle**: `provisioning` → `creating` → `running` (or `failed`)
 
-### 6.3 Chat Routing
+### 6.4 Chat Routing
 
 Portal API routes chat messages to the user's sandbox via an OpenAI-compatible endpoint:
 
@@ -613,15 +655,38 @@ Body:
 
 The sandbox gateway processes the message through the OpenClaw agent pipeline and returns the AI response.
 
-### 6.4 Resource Profile & Capacity Planning
+### 6.5 Gateway Management (Standard Pod)
+
+In Standard Pod sandboxes, the OpenClaw gateway runs as a **background process** rather than PID 1. This allows agents to restart the gateway without requiring pod recreation.
+
+**Problem**: OpenClaw's built-in gateway management commands (`openclaw gateway start/restart/stop`) rely on systemd, which is not available in containers. Running `openclaw gateway restart` fails with "gateway not installed".
+
+**Solution**: Three shell scripts are injected into Standard Pod sandboxes at `/home/node/scripts/`:
+
+| Script | Command | Behavior |
+|--------|---------|----------|
+| `start.sh` | `sh /home/node/scripts/start.sh` | Starts gateway if not running; no-op if already running |
+| `restart.sh` | `sh /home/node/scripts/restart.sh` | Kills existing gateway, starts new one |
+| `stop.sh` | `sh /home/node/scripts/stop.sh` | Kills gateway process |
+
+- Gateway logs: `tail -f /tmp/openclaw-gateway.log`
+- Gateway PID: `cat /tmp/openclaw-gateway.pid`
+
+These scripts use `pkill -x openclaw-gateway` and `nohup openclaw gateway run` for lifecycle management.
+
+The workspace's `AGENTS.md` file is auto-appended with a "Gateway Management" section documenting these scripts, so the AI agent is aware of how to manage the gateway in its environment.
+
+> **Note**: Kata VM sandboxes do NOT have these scripts. The gateway runs as PID 1 via `exec`, and restarting it requires pod recreation via the portal or `kubectl`.
+
+### 6.6 Resource Profile & Capacity Planning
 
 **Per-Sandbox Resources**:
 
 | Resource | Request | Limit |
 |----------|---------|-------|
-| CPU | 1 core | 2 cores |
-| Memory | 2 Gi | 4 Gi |
-| Storage (PVC) | 2 Gi | 2 Gi (Azure Premium SSD) |
+| CPU | 500m | 1500m |
+| Memory | 1 Gi | 3 Gi |
+| Storage (PVC) | 2 Gi | 2 Gi (Azure Files Premium) |
 
 **Per-Node Capacity** (Standard_D4s_v5):
 
@@ -631,18 +696,20 @@ The sandbox gateway processes the message through the OpenClaw agent pipeline an
 | Memory | 16 Gi | ~11.1 Gi | ~4.9 Gi |
 
 **Sandboxes per Node**:
-- CPU bottleneck: 3.86 / 1.0 (request) = **3 sandboxes** (max)
-- Memory bottleneck: 11.1 / 2.0 (request) = **5 sandboxes**
-- **Effective max: 3 sandboxes per node** (CPU is the limiting factor)
+- CPU bottleneck: 3.86 / 0.5 (request) = **7 sandboxes** (max by CPU)
+- Memory bottleneck: 11.1 / 1.0 (request) = **11 sandboxes**
+- **Effective max: 7 sandboxes per Kata node** (CPU is the limiting factor)
 
-**Scale Capacity**:
+> **Note**: Standard Pod sandboxes run on the system node pool alongside portal and LiteLLM workloads, so available capacity depends on other workloads.
 
-| Kata Nodes | Max Sandboxes |
-|------------|---------------|
-| 1 (min) | 3 |
-| 2 | 6 |
-| 5 | 15 |
-| 10 (max) | 30 |
+**Scale Capacity (Kata Node Pool)**:
+
+| Kata Nodes | Max Kata Sandboxes |
+|------------|--------------------|
+| 1 (min) | 7 |
+| 2 | 14 |
+| 5 | 35 |
+| 10 (max) | 70 |
 
 The cluster autoscaler will add Kata nodes as new sandboxes are provisioned and existing nodes reach capacity.
 
@@ -759,11 +826,12 @@ All integration operations (connect/disconnect) trigger `updateSandboxChannels()
 
 | Layer | Mechanism | Scope |
 |-------|-----------|-------|
-| **Hardware** | Kata VM isolation (Microsoft Hypervisor) | Each sandbox runs in its own lightweight VM |
+| **Hardware** | Kata VM isolation (Microsoft Hypervisor) | Kata VM sandboxes run in their own lightweight VM |
+| **Container** | Standard Pod isolation (runc) | Standard Pod sandboxes run with container-level isolation |
 | **Network** | Calico network policies | Pod-to-pod isolation capability |
 | **Container** | securityContext hardening | Non-root (UID 1000), drop ALL capabilities, no privilege escalation |
 | **Auth** | Token-based gateway auth | Each sandbox gateway requires Bearer token |
-| **Scheduling** | Node taints + tolerations | Sandboxes only run on Kata-dedicated nodes |
+| **Scheduling** | Node taints + tolerations | Kata VM sandboxes only run on Kata-dedicated nodes; Standard Pod sandboxes run on system nodes |
 
 ### Container Security
 
@@ -809,12 +877,17 @@ All stateful data is stored on Azure Managed Disks (Premium SSD) via PersistentV
 | Each Sandbox | `workspaces-pvc` | 2 Gi | `/home/node/.openclaw` | OpenClaw config, workspace files, agent data |
 | LiteLLM DB | auto-provisioned | — | — | PostgreSQL (API keys, usage tracking) |
 
-**Durability**: All PVCs use `azure-disk-premium` (Azure Managed Disk, Premium SSD). Data survives:
+**Storage Types**:
+- **Portal API**: Azure Disk Premium (ReadWriteOnce) — single write-access, requires scale-to-zero for redeployment
+- **Sandboxes**: Azure Files Premium (ReadWriteMany) — allows flexible pod rescheduling across nodes
+- **LiteLLM**: Azure Disk Premium (auto-provisioned by Helm chart)
+
+**Durability**: All PVCs use Azure-managed storage. Data survives:
 - Pod restarts
 - Node failures (disk is re-attached to new node)
 - Cluster upgrades
 
-**Access Mode**: All PVCs are `ReadWriteOnce` (single-node mount). During rolling deployments, the old pod must release the PVC before the new pod can mount it. For portal-api, this may require manually scaling down the old ReplicaSet.
+**Access Mode**: Portal API PVC is `ReadWriteOnce` (single-node mount). During rolling deployments, the old pod must release the PVC before the new pod can mount it — use `kubectl scale --replicas=0` then `--replicas=1`. Sandbox PVCs are `ReadWriteMany` and do not have this constraint.
 
 ---
 
@@ -925,9 +998,10 @@ Phase 3: Portal Deployment
 After `install.sh` completes:
 1. Access Admin Portal at `http://<ingress-ip>/admin` (login: `admin@openclaw.ai` / `Admin@123`)
 2. Access Customer Portal at `http://<ingress-ip>/app`
-3. The admin user's sandbox is automatically provisioned on first startup
+3. The admin user's sandbox is automatically provisioned on first startup (Kata VM by default)
 4. Additional users register via the Customer Portal signup page
-5. IM integrations (Telegram, Feishu, Slack) are configured post-deployment via the Customer Portal integrations page
+5. Admin approves new users via the **Approvals** page, selecting Kata VM or Standard Pod runtime type
+6. IM integrations (Telegram, Feishu, Slack) are configured post-deployment via the Customer Portal integrations page
 
 ---
 
@@ -937,16 +1011,14 @@ After `install.sh` completes:
 
 | Item | Value |
 |------|-------|
-| Ingress IP | `57.158.168.123` |
-| Admin Portal | `http://57.158.168.123/admin` |
-| Customer Portal | `http://57.158.168.123/app` |
-| API | `https://57.158.168.123/api` |
-| ACR | `ocaksdemoacr` |
-| AKS Region | Southeast Asia |
-| Foundry Region | East US 2 |
-| System Nodes | 3x Standard_D4as_v7 |
-| Kata Nodes | 2x Standard_D4s_v5 |
-| Active Sandboxes | 3 |
+| Admin Portal | `http://<ingress-ip>/admin` |
+| Customer Portal | `http://<ingress-ip>/app` |
+| API | `https://<ingress-ip>/api` |
+| AKS Region | Configurable (default: `southeastasia`) |
+| Foundry Region | Configurable (default: `eastus2`) |
+| System Nodes | Standard_D4as_v7 (1-3 nodes) |
+| Kata Nodes | Standard_D4s_v5 (1-10 nodes) |
+| Runtime Types | Kata VM (hardware isolation) or Standard Pod (container isolation) |
 
 ### Repository Structure
 
@@ -966,7 +1038,7 @@ openclaw-on-aks/
 │   └── layer2-k8s/                     # Kubernetes workloads
 │       ├── main.tf                     # Provider config, layer1 state ref
 │       ├── namespaces.tf               # Namespace definitions
-│       ├── storage.tf                  # StorageClass (azure-disk-premium)
+│       ├── storage.tf                  # StorageClasses (azure-disk-premium, azure-files-premium)
 │       ├── litellm.tf                  # LiteLLM Helm release
 │       ├── agent-sandbox.tf            # Sandbox controller installation
 │       ├── variables.tf                # Input variables
@@ -1000,6 +1072,7 @@ openclaw-on-aks/
 │   │   ├── Dockerfile
 │   │   └── src/app/
 │   │       ├── dashboard/page.tsx
+│   │       ├── approvals/page.tsx
 │   │       ├── users/page.tsx
 │   │       ├── cluster/page.tsx
 │   │       ├── monitoring/page.tsx
@@ -1028,7 +1101,9 @@ openclaw-on-aks/
 1. **Kata nodepool cannot scale from 0**: Always keep `min_count >= 1`.
 2. **Kata workload runtime is immutable**: `KataMshvVmIsolation` must be set at nodepool creation.
 3. **AKS-managed labels are protected**: Cannot manually add `kubernetes.azure.com/*` labels.
-4. **Portal-api PVC contention**: During rollout, manually scale down old ReplicaSet if new pod can't mount PVC.
+4. **Portal-api PVC contention**: During rollout, use `kubectl scale --replicas=0` then `--replicas=1` (not rolling restart) due to ReadWriteOnce PVC.
 5. **Sandbox re-provisioning**: After changing LITELLM_API_KEY or config, must call `updateSandboxChannels()` AND delete pods to restart with new config.
 6. **OpenClaw workspace directory**: Must `mkdir -p /home/node/.openclaw/workspace` before starting gateway, or agent is skipped.
 7. **Telegram uses polling, not webhooks**: Never call `setWebhook` for OpenClaw Telegram bots.
+8. **Standard Pod gateway restart**: Standard Pod sandboxes have gateway restart scripts; Kata VM sandboxes require pod recreation to restart gateway.
+9. **Runtime type is immutable**: Once a sandbox is provisioned with a runtime type, changing it requires deleting and re-provisioning the sandbox.

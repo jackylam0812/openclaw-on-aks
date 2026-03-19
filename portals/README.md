@@ -23,7 +23,7 @@ Web portals for the OpenClaw platform: an Admin Console and a Customer Chat Inte
                                       └─────────┘
 ```
 
-- **Admin Portal** (`/admin`) — Platform administration: dashboard, cluster monitoring, model management, user management
+- **Admin Portal** (`/admin`) — Platform administration: dashboard, user approvals (with Kata VM / Standard Pod runtime type selection), cluster monitoring, model management, user management
 - **Customer Portal** (`/app`) — End-user chat interface with AI, plus integrations (Feishu, Telegram, Slack)
 - **Portal API** (`/api`) — Fastify backend handling auth, chat, admin endpoints, and integrations
 

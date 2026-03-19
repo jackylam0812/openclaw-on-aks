@@ -6,21 +6,25 @@ This blueprint deploys OpenClaw AI agents with sandbox isolation using Kata Cont
 
 **Key Features:**
 
-- **VM-level Isolation**: Kata Containers (KataMshvVmIsolation) provide lightweight VM isolation for each sandbox
-- **Autoscaling**: AKS cluster autoscaler provisions Kata nodes on-demand (0-10 nodes)
+- **Flexible Isolation**: Supports both Kata VM isolation (KataMshvVmIsolation) and Standard Pod deployment — Admin selects runtime type when approving users
+- **Approval Workflow**: New user registration requires Admin approval, with runtime type selection (Kata VM or Standard Pod) at approval time
+- **Autoscaling**: AKS cluster autoscaler provisions Kata nodes on-demand (1-10 nodes)
 - **Observability**: Prometheus and Grafana for metrics, with LiteLLM ServiceMonitor
 - **Sandbox Lifecycle**: CRD-based sandbox management with warm pool and template support
 - **Secure AI Access**: Workload Identity for Azure OpenAI authentication (no static credentials)
-- **Multi-channel**: Support for Slack and Feishu integrations
-- **Persistent Workspaces**: Azure Disk Premium-backed storage for agent state and data
+- **Secret Management**: Credentials injected via Kubernetes Secrets with placeholder-based config injection (no secrets baked into manifests)
+- **Multi-channel**: Support for Slack, Feishu, and Telegram integrations
+- **Persistent Workspaces**: Azure Files Premium-backed storage (ReadWriteMany) for agent state and data
+- **Gateway Management Scripts**: Standard Pod sandboxes include start/restart/stop scripts for gateway lifecycle management (documented in AGENTS.md)
+- **Self-service Portal**: Customer portal for chat and integration management; Admin portal for cluster monitoring, user approval, and sandbox oversight
 
 ## Architecture
 
-- **AKS Cluster**: Managed Kubernetes cluster (v1.31) with system node pool and Kata node pool with autoscaling
-- **Kata Containers**: Lightweight VM isolation using AKS-native KataMshvVmIsolation on nested-virtualization capable VMs
+- **AKS Cluster**: Managed Kubernetes cluster (v1.32) with system node pool and Kata node pool with autoscaling
+- **Kata Containers**: Lightweight VM isolation using AKS-native KataMshvVmIsolation on nested-virtualization capable VMs (for Kata runtime type)
 - **LiteLLM Proxy**: OpenAI-compatible API gateway to Azure OpenAI with PostgreSQL backend
 - **OpenClaw Sandboxes**: CRD-managed isolated agent environments with persistent storage
-- **Storage**: Azure Disk CSI driver with Premium SSD volumes for workspace persistence
+- **Storage**: Azure Files CSI driver with Premium file shares (ReadWriteMany) for workspace persistence
 - **Networking**: VNet with subnets for system nodes, Kata nodes, and pods; NAT Gateway for outbound connectivity
 - **Security**: Workload Identity for Azure OpenAI access (no long-lived credentials), Key Vault for secrets
 - **Observability**: Prometheus (50Gi, 15d retention) and Grafana with LiteLLM metrics
@@ -174,16 +178,15 @@ openclaw_namespace = "openclaw"
 This deployment creates:
 
 **Infrastructure:**
-- AKS cluster (v1.31) with system node pool (Standard_D4as_v7, 1-3 nodes)
+- AKS cluster (v1.32) with system node pool (Standard_D4as_v7, 1-3 nodes)
 - VNet with 3 subnets (system nodes, Kata nodes, pods), NAT Gateway
 - Azure Disk CSI driver with default Premium SSD StorageClass
 - Azure Files CSI driver with Premium StorageClass
-- Azure Container Registry (Basic SKU)
-- Azure Key Vault for secrets management
 
 **Compute & Runtime:**
 - Kata Containers runtime (KataMshvVmIsolation) on nested-virtualization capable VMs
-- Kata node pool with autoscaling (Standard_D4as_v7, 0-10 nodes)
+- Kata node pool with autoscaling (Standard_D4s_v5, 1-10 nodes)
+- Standard Pod deployment option (runs on system node pool without Kata isolation)
 - Agent sandbox controller with CRDs
 
 **AI & Proxy:**
@@ -640,7 +643,7 @@ az group delete --name openclaw-kata-aks-rg --yes --no-wait
 
 ## Cost Optimization
 
-- **Kata node pool** scales to zero when no sandboxes are running
+- **Kata node pool** minimum is 1 node (cannot scale to zero); cost is ongoing for the minimum node
 - **System node pool** (Standard_D4as_v7) runs continuously
 - **Azure Disk Premium** charged per provisioned size
 - **LiteLLM PostgreSQL** uses Azure Disk storage
@@ -657,7 +660,7 @@ az group delete --name openclaw-kata-aks-rg --yes --no-wait
 
 - **Secrets Management**: Master key and API keys stored in Kubernetes secrets; Azure Key Vault available for additional secrets
 - **Identity**: Workload Identity for Azure OpenAI access (no long-lived credentials)
-- **Isolation**: Sandboxes run in Kata VMs with separate kernel (KataMshvVmIsolation)
+- **Isolation**: Kata VM sandboxes run in VMs with separate kernel (KataMshvVmIsolation); Standard Pod sandboxes run with container-level isolation
 - **Network**: Calico network policies, NAT Gateway for controlled egress
 - **Tokens**: Rotate Slack/Feishu tokens regularly
 - **API Keys**: Set expiration on LiteLLM API keys (default 30 days)
@@ -665,13 +668,28 @@ az group delete --name openclaw-kata-aks-rg --yes --no-wait
 
 ## Sandbox Configuration Details
 
+### Runtime Type Selection
+
+When an Admin approves a new user, they select a **Runtime Type** for the user's sandbox:
+
+| Runtime Type | Isolation | Node Pool | Gateway Mode | Use Case |
+|---|---|---|---|---|
+| **Kata VM** (default) | Hardware-level VM isolation via Microsoft Hypervisor | Kata node pool (Standard_D4s_v5) | PID 1 via `exec` | Production, sensitive workloads |
+| **Standard Pod** | Container-level isolation (runc) | System node pool (Standard_D4as_v7) | Background process with restart scripts | Development, testing |
+
+**Standard Pod differences:**
+- No `runtimeClassName`, `nodeSelector`, or `tolerations` — runs on system node pool
+- Gateway runs as background process (not PID 1), allowing restart without pod recreation
+- Includes `/home/node/scripts/` with `start.sh`, `restart.sh`, `stop.sh` for gateway lifecycle
+- `AGENTS.md` is auto-appended with gateway management instructions
+
 ### Runtime and Isolation
 
 Each OpenClaw sandbox runs with:
 
-- **Runtime**: `kata-mshv-vm-isolation` - AKS-native Kata Containers with Hyper-V isolation
-- **Node Selector**: `katacontainers.io/kata-runtime: "true"` - Scheduled only on Kata node pool
-- **Tolerations**: `kata=true:NoSchedule` - Ensures placement on dedicated Kata nodes
+- **Runtime**: `kata-vm-isolation` (Kata VM) or default runc (Standard Pod) — selected at user approval time
+- **Node Selector**: `katacontainers.io/kata-runtime: "true"` — Kata VM only
+- **Tolerations**: `kata=true:NoSchedule` — Kata VM only
 - **Service Account**: `openclaw-sandbox` - With Workload Identity for Azure OpenAI access
 - **Security Context**:
   - Runs as non-root user (UID 1000, GID 1000)
@@ -680,10 +698,10 @@ Each OpenClaw sandbox runs with:
 
 ### Storage and Persistence
 
-- **Volume Type**: Azure Disk Premium SSD via CSI driver
+- **Volume Type**: Azure Files Premium via CSI driver
 - **Size**: 2Gi per sandbox
 - **Mount Path**: `/home/node/.openclaw`
-- **Access Mode**: ReadWriteOnce
+- **Access Mode**: ReadWriteMany
 - **Lifecycle**: Persists across pod restarts, deleted with sandbox
 
 ### LiteLLM Integration
@@ -731,7 +749,7 @@ OpenClaw sandboxes connect to LiteLLM proxy with:
 - **Service Discovery**: Kubernetes DNS
 - **LiteLLM Access**: ClusterIP service in `litellm` namespace
 - **External Access**: None (sandboxes are internal only)
-- **Channel Access**: Outbound HTTPS to Slack/Feishu APIs via NAT Gateway
+- **Channel Access**: Outbound HTTPS to Slack/Feishu/Telegram APIs via NAT Gateway (Kata pods) or AKS LB SNAT (Standard pods)
 - **Network Policy**: Calico
 
 ## References
