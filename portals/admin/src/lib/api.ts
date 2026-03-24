@@ -60,6 +60,11 @@ export async function getPods() {
   return res.json();
 }
 
+export async function getVMs() {
+  const res = await authFetch('/admin/vms');
+  return res.json();
+}
+
 export async function getUsers() {
   const res = await authFetch('/admin/users');
   return res.json();

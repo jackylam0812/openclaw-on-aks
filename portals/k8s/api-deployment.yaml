@@ -34,6 +34,21 @@ spec:
               value: /etc/tls/tls.crt
             - name: DB_PATH
               value: /data/db.sqlite
+            - name: AZURE_CLIENT_ID
+              valueFrom:
+                secretKeyRef:
+                  name: azure-sp-creds
+                  key: AZURE_CLIENT_ID
+            - name: AZURE_CLIENT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: azure-sp-creds
+                  key: AZURE_CLIENT_SECRET
+            - name: AZURE_TENANT_ID
+              valueFrom:
+                secretKeyRef:
+                  name: azure-sp-creds
+                  key: AZURE_TENANT_ID
           volumeMounts:
             - name: db-storage
               mountPath: /data

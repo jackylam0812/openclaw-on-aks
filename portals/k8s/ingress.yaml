@@ -3,10 +3,18 @@ kind: Ingress
 metadata:
   name: portals-ingress
   namespace: portals
+  annotations:
+    cert-manager.io/cluster-issuer: letsencrypt-prod
+    nginx.ingress.kubernetes.io/ssl-redirect: "true"
 spec:
   ingressClassName: nginx
+  tls:
+  - hosts:
+    - demo.openclaw-azure.org
+    secretName: openclaw-demo-tls
   rules:
-  - http:
+  - host: demo.openclaw-azure.org
+    http:
       paths:
       - path: /admin
         pathType: Prefix
@@ -28,10 +36,17 @@ kind: Ingress
 metadata:
   name: landing-ingress
   namespace: portals
+  annotations:
+    nginx.ingress.kubernetes.io/ssl-redirect: "true"
 spec:
   ingressClassName: nginx
+  tls:
+  - hosts:
+    - demo.openclaw-azure.org
+    secretName: openclaw-demo-tls
   rules:
-  - http:
+  - host: demo.openclaw-azure.org
+    http:
       paths:
       - path: /
         pathType: Prefix
@@ -49,13 +64,16 @@ metadata:
   annotations:
     nginx.ingress.kubernetes.io/use-regex: "true"
     nginx.ingress.kubernetes.io/rewrite-target: /$2
-    nginx.ingress.kubernetes.io/ssl-redirect: "false"
+    nginx.ingress.kubernetes.io/ssl-redirect: "true"
 spec:
   ingressClassName: nginx
   tls:
-  - secretName: ingress-tls-cert
+  - hosts:
+    - demo.openclaw-azure.org
+    secretName: openclaw-demo-tls
   rules:
-  - http:
+  - host: demo.openclaw-azure.org
+    http:
       paths:
       - path: /api(/|$)(.*)
         pathType: ImplementationSpecific

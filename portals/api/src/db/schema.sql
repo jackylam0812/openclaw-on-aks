@@ -64,6 +64,9 @@ CREATE TABLE IF NOT EXISTS sandboxes (
   status TEXT DEFAULT 'provisioning',
   runtime_type TEXT DEFAULT 'kata',
   endpoint TEXT,
+  vm_resource_id TEXT,
+  vm_name TEXT,
+  vm_public_ip TEXT,
   created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
   ready_at DATETIME
 );

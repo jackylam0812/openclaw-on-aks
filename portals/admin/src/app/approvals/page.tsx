@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { CheckCircle, XCircle, Clock, Trash2, Shield, Box, RefreshCw } from 'lucide-react';
+import { CheckCircle, XCircle, Clock, Trash2, Shield, Box, RefreshCw, Monitor } from 'lucide-react';
 import AppLayout from '@/components/layout/app-layout';
 import { getApprovals, approveUser, rejectUser, deleteUser, changeRuntimeType } from '@/lib/api';
 
@@ -26,9 +26,9 @@ export default function ApprovalsPage() {
   const [loading, setLoading] = useState(true);
   const [actionLoading, setActionLoading] = useState<string | null>(null);
   const [approveModal, setApproveModal] = useState<{ userId: string; userName: string } | null>(null);
-  const [selectedRuntime, setSelectedRuntime] = useState<'kata' | 'standard'>('kata');
+  const [selectedRuntime, setSelectedRuntime] = useState<'kata' | 'standard' | 'azure-vm'>('kata');
   const [runtimeModal, setRuntimeModal] = useState<{ userId: string; userName: string; currentRuntime: string } | null>(null);
-  const [newRuntime, setNewRuntime] = useState<'kata' | 'standard'>('kata');
+  const [newRuntime, setNewRuntime] = useState<'kata' | 'standard' | 'azure-vm'>('kata');
 
   const loadUsers = async (status: string) => {
     setLoading(true);
@@ -79,8 +79,7 @@ export default function ApprovalsPage() {
   };
 
   const handleChangeRuntime = (userId: string, userName: string, currentRuntime: string) => {
-    const target = currentRuntime === 'kata' ? 'standard' : 'kata';
-    setNewRuntime(target as 'kata' | 'standard');
+    setNewRuntime('kata');
     setRuntimeModal({ userId, userName, currentRuntime });
   };
 
@@ -155,7 +154,12 @@ export default function ApprovalsPage() {
                   <td className="px-5 py-3 text-sm text-gray-400">{user.email}</td>
                   {activeTab === 'approved' && (
                     <td className="px-5 py-3">
-                      {user.runtime_type === 'standard' ? (
+                      {user.runtime_type === 'azure-vm' ? (
+                        <span className="inline-flex items-center gap-1.5 px-2.5 py-1 text-xs font-medium text-green-400 bg-green-500/10 border border-green-500/20 rounded-full">
+                          <Monitor size={11} />
+                          Azure VM
+                        </span>
+                      ) : user.runtime_type === 'standard' ? (
                         <span className="inline-flex items-center gap-1.5 px-2.5 py-1 text-xs font-medium text-amber-400 bg-amber-500/10 border border-amber-500/20 rounded-full">
                           <Box size={11} />
                           Standard Pod
@@ -265,6 +269,25 @@ export default function ApprovalsPage() {
                   </div>
                 </div>
               </button>
+
+              <button
+                onClick={() => setSelectedRuntime('azure-vm')}
+                className={`w-full flex items-start gap-3 p-4 rounded-lg border transition-colors text-left ${
+                  selectedRuntime === 'azure-vm'
+                    ? 'border-blue-500/40 bg-blue-500/10'
+                    : 'border-white/[0.06] bg-white/[0.02] hover:bg-white/[0.04]'
+                }`}
+              >
+                <Monitor size={20} className={selectedRuntime === 'azure-vm' ? 'text-blue-400 mt-0.5' : 'text-gray-500 mt-0.5'} />
+                <div>
+                  <div className={`text-sm font-medium ${selectedRuntime === 'azure-vm' ? 'text-blue-300' : 'text-gray-300'}`}>
+                    Azure VM (B2ats_v2)
+                  </div>
+                  <div className="text-xs text-gray-500 mt-1">
+                    Dedicated Azure VM with full OS isolation. Provisioning takes 3-5 minutes. Ideal for independent workloads.
+                  </div>
+                </div>
+              </button>
             </div>
 
             <div className="flex justify-end gap-3">
@@ -300,13 +323,16 @@ export default function ApprovalsPage() {
                 className={`w-full flex items-start gap-3 p-4 rounded-lg border transition-colors text-left ${
                   newRuntime === 'kata'
                     ? 'border-blue-500/40 bg-blue-500/10'
-                    : 'border-white/[0.06] bg-white/[0.02] hover:bg-white/[0.04]'
+                    : runtimeModal.currentRuntime === 'kata'
+                      ? 'border-white/[0.06] bg-white/[0.02] opacity-50 cursor-not-allowed'
+                      : 'border-white/[0.06] bg-white/[0.02] hover:bg-white/[0.04]'
                 }`}
+                disabled={runtimeModal.currentRuntime === 'kata'}
               >
                 <Shield size={20} className={newRuntime === 'kata' ? 'text-blue-400 mt-0.5' : 'text-gray-500 mt-0.5'} />
                 <div>
                   <div className={`text-sm font-medium ${newRuntime === 'kata' ? 'text-blue-300' : 'text-gray-300'}`}>
-                    Kata VM Isolation
+                    Kata VM Isolation {runtimeModal.currentRuntime === 'kata' && '(current)'}
                   </div>
                   <div className="text-xs text-gray-500 mt-1">
                     Hardware-level isolation via Kata Containers. Runs in a lightweight VM on Intel nodes.
@@ -319,16 +345,41 @@ export default function ApprovalsPage() {
                 className={`w-full flex items-start gap-3 p-4 rounded-lg border transition-colors text-left ${
                   newRuntime === 'standard'
                     ? 'border-blue-500/40 bg-blue-500/10'
-                    : 'border-white/[0.06] bg-white/[0.02] hover:bg-white/[0.04]'
+                    : runtimeModal.currentRuntime === 'standard'
+                      ? 'border-white/[0.06] bg-white/[0.02] opacity-50 cursor-not-allowed'
+                      : 'border-white/[0.06] bg-white/[0.02] hover:bg-white/[0.04]'
                 }`}
+                disabled={runtimeModal.currentRuntime === 'standard'}
               >
                 <Box size={20} className={newRuntime === 'standard' ? 'text-blue-400 mt-0.5' : 'text-gray-500 mt-0.5'} />
                 <div>
                   <div className={`text-sm font-medium ${newRuntime === 'standard' ? 'text-blue-300' : 'text-gray-300'}`}>
-                    Standard Pod
+                    Standard Pod {runtimeModal.currentRuntime === 'standard' && '(current)'}
                   </div>
                   <div className="text-xs text-gray-500 mt-1">
                     Regular container isolation. Runs on system node pool. Lower resource overhead.
+                  </div>
+                </div>
+              </button>
+
+              <button
+                onClick={() => setNewRuntime('azure-vm')}
+                className={`w-full flex items-start gap-3 p-4 rounded-lg border transition-colors text-left ${
+                  newRuntime === 'azure-vm'
+                    ? 'border-blue-500/40 bg-blue-500/10'
+                    : runtimeModal.currentRuntime === 'azure-vm'
+                      ? 'border-white/[0.06] bg-white/[0.02] opacity-50 cursor-not-allowed'
+                      : 'border-white/[0.06] bg-white/[0.02] hover:bg-white/[0.04]'
+                }`}
+                disabled={runtimeModal.currentRuntime === 'azure-vm'}
+              >
+                <Monitor size={20} className={newRuntime === 'azure-vm' ? 'text-blue-400 mt-0.5' : 'text-gray-500 mt-0.5'} />
+                <div>
+                  <div className={`text-sm font-medium ${newRuntime === 'azure-vm' ? 'text-blue-300' : 'text-gray-300'}`}>
+                    Azure VM (B2ats_v2) {runtimeModal.currentRuntime === 'azure-vm' && '(current)'}
+                  </div>
+                  <div className="text-xs text-gray-500 mt-1">
+                    Dedicated Azure VM with full OS isolation. Provisioning takes 3-5 minutes.
                   </div>
                 </div>
               </button>

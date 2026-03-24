@@ -4,6 +4,7 @@ import { requireAdmin } from '../middleware/auth.js';
 import db from '../db/client.js';
 import { getNodes, getPods } from '../services/k8s.js';
 import { provisionSandbox, syncAllSandboxes, deleteSandbox } from '../services/sandbox.js';
+import { listAzureVMs } from '../services/azure-vm.js';
 import { v4 as uuid } from 'uuid';
 
 export default async function adminRoutes(app: FastifyInstance) {
@@ -59,15 +60,27 @@ export default async function adminRoutes(app: FastifyInstance) {
     const runningPods = sandboxPods.filter((p: any) => p.status === 'Running');
     const totalUsers = (db.prepare('SELECT COUNT(*) as count FROM users').get() as any).count;
     const activeSandboxes = (db.prepare("SELECT COUNT(*) as count FROM sandboxes WHERE status IN ('running', 'creating')").get() as any).count;
+    const vmSandboxes = (db.prepare("SELECT COUNT(*) as count FROM sandboxes WHERE runtime_type = 'azure-vm' AND status IN ('running', 'provisioning')").get() as any).count;
     const pendingApprovals = (db.prepare("SELECT COUNT(*) as count FROM users WHERE approval_status = 'pending' AND role != 'admin'").get() as any).count;
     return {
       totalUsers,
       activeSandboxes,
+      vmSandboxes,
       pendingApprovals,
       nodeCount: nodes.length,
       totalPods: runningPods.length,
       nodes,
     };
+  });
+
+  // --- Azure VM endpoints ---
+
+  app.get('/admin/vms', async () => {
+    try {
+      return await listAzureVMs();
+    } catch (e: any) {
+      return [];
+    }
   });
 
   // --- Approval endpoints ---
@@ -95,7 +108,8 @@ export default async function adminRoutes(app: FastifyInstance) {
   app.post('/admin/approvals/:userId/approve', async (request, reply) => {
     const { userId } = request.params as { userId: string };
     const { runtime_type } = (request.body as { runtime_type?: string }) || {};
-    const runtimeType = runtime_type === 'standard' ? 'standard' : 'kata';
+    const validTypes = ['kata', 'standard', 'azure-vm'];
+    const runtimeType = validTypes.includes(runtime_type || '') ? runtime_type! : 'kata';
     const user = db.prepare('SELECT id, email, approval_status FROM users WHERE id = ?').get(userId) as any;
     if (!user) {
       return reply.status(404).send({ error: 'User not found' });
@@ -136,14 +150,15 @@ export default async function adminRoutes(app: FastifyInstance) {
   app.patch('/admin/sandboxes/:userId/runtime', async (request, reply) => {
     const { userId } = request.params as { userId: string };
     const { runtime_type } = (request.body as { runtime_type?: string }) || {};
-    const newRuntimeType = runtime_type === 'standard' ? 'standard' : 'kata';
+    const validTypes = ['kata', 'standard', 'azure-vm'];
+    const newRuntimeType = validTypes.includes(runtime_type || '') ? runtime_type! : 'kata';
 
     const user = db.prepare('SELECT id, email FROM users WHERE id = ?').get(userId) as any;
     if (!user) {
       return reply.status(404).send({ error: 'User not found' });
     }
 
-    const sandbox = db.prepare('SELECT id, pod_name, namespace, runtime_type FROM sandboxes WHERE user_id = ?').get(userId) as any;
+    const sandbox = db.prepare('SELECT id, pod_name, namespace, runtime_type, vm_name FROM sandboxes WHERE user_id = ?').get(userId) as any;
     if (!sandbox) {
       return reply.status(404).send({ error: 'Sandbox not found for this user' });
     }
@@ -155,8 +170,10 @@ export default async function adminRoutes(app: FastifyInstance) {
     // Update DB
     db.prepare('UPDATE sandboxes SET runtime_type = ?, status = ? WHERE user_id = ?').run(newRuntimeType, 'provisioning', userId);
 
-    // Delete old sandbox and re-provision with new runtime type
-    if (sandbox.pod_name) {
+    // Delete old sandbox (pod or VM) and re-provision with new runtime type
+    if (sandbox.runtime_type === 'azure-vm' && sandbox.vm_name) {
+      deleteSandbox('', '', 'azure-vm', sandbox.vm_name);
+    } else if (sandbox.pod_name) {
       deleteSandbox(sandbox.pod_name, sandbox.namespace || 'openclaw');
     }
 
@@ -179,9 +196,11 @@ export default async function adminRoutes(app: FastifyInstance) {
       return reply.status(400).send({ error: 'Cannot delete admin user' });
     }
 
-    // Delete sandbox CR + associated Secret in k8s
-    const sandbox = db.prepare('SELECT pod_name, namespace FROM sandboxes WHERE user_id = ?').get(userId) as any;
-    if (sandbox?.pod_name) {
+    // Delete sandbox (pod or VM) + associated Secret in k8s
+    const sandbox = db.prepare('SELECT pod_name, namespace, runtime_type, vm_name FROM sandboxes WHERE user_id = ?').get(userId) as any;
+    if (sandbox?.runtime_type === 'azure-vm' && sandbox?.vm_name) {
+      deleteSandbox('', '', 'azure-vm', sandbox.vm_name);
+    } else if (sandbox?.pod_name) {
       deleteSandbox(sandbox.pod_name, sandbox.namespace || 'openclaw');
     }
 

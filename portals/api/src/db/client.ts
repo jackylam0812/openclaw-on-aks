@@ -53,6 +53,16 @@ try {
   // Column already exists
 }
 
+// Migration: add Azure VM columns to sandboxes table if missing
+for (const col of ['vm_resource_id', 'vm_name', 'vm_public_ip']) {
+  try {
+    db.exec(`ALTER TABLE sandboxes ADD COLUMN ${col} TEXT`);
+    console.log(`Migration: added ${col} column to sandboxes table`);
+  } catch {
+    // Column already exists
+  }
+}
+
 // Seed default model if models table is empty
 const modelCount = (db.prepare('SELECT COUNT(*) as count FROM models').get() as any).count;
 if (modelCount === 0) {

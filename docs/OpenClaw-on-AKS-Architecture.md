@@ -1,7 +1,7 @@
 # OpenClaw on AKS — Architecture & Technical Deep Dive
 
 > **Repository**: github.com/jackylam0812/openclaw-on-aks
-> **Last Updated**: 2026-03-19
+> **Last Updated**: 2026-03-24
 
 ---
 
@@ -25,13 +25,15 @@
    - 5.1 [Portal API (Fastify + SQLite)](#51-portal-api-fastify--sqlite)
    - 5.2 [Admin Portal (Next.js)](#52-admin-portal-nextjs)
    - 5.3 [Customer Portal (Next.js)](#53-customer-portal-nextjs)
+   - 5.4 [Landing Page (Static HTML)](#54-landing-page-static-html)
 6. [OpenClaw Sandbox Architecture](#6-openclaw-sandbox-architecture)
    - 6.1 [Sandbox CRD & Manifest](#61-sandbox-crd--manifest)
    - 6.2 [Runtime Type Selection](#62-runtime-type-selection)
-   - 6.3 [Provisioning Flow](#63-provisioning-flow)
-   - 6.4 [Chat Routing](#64-chat-routing)
-   - 6.5 [Gateway Management (Standard Pod)](#65-gateway-management-standard-pod)
-   - 6.6 [Resource Profile & Capacity Planning](#66-resource-profile--capacity-planning)
+   - 6.3 [Azure VM Sandbox](#63-azure-vm-sandbox)
+   - 6.4 [Provisioning Flow](#64-provisioning-flow)
+   - 6.5 [Chat Routing](#65-chat-routing)
+   - 6.6 [Gateway Management (Standard Pod)](#66-gateway-management-standard-pod)
+   - 6.7 [Resource Profile & Capacity Planning](#67-resource-profile--capacity-planning)
 7. [IM Integrations](#7-im-integrations)
    - 7.1 [Telegram](#71-telegram)
    - 7.2 [Feishu (飞书)](#72-feishu-飞书)
@@ -39,8 +41,9 @@
 8. [Security](#8-security)
 9. [Data Persistence](#9-data-persistence)
 10. [Networking & Ingress](#10-networking--ingress)
-11. [Deployment Automation (install.sh)](#11-deployment-automation-installsh)
-12. [Appendix: Quick Reference](#12-appendix-quick-reference)
+11. [HTTPS & Certificate Management](#11-https--certificate-management)
+12. [Deployment Automation (install.sh)](#12-deployment-automation-installsh)
+13. [Appendix: Quick Reference](#13-appendix-quick-reference)
 
 ---
 
@@ -50,10 +53,12 @@
 
 ### Key Features
 
-- **Per-user AI sandbox**: Each user receives a dedicated OpenClaw instance running in a Kata VM-isolated pod, providing hardware-level tenant isolation.
+- **Per-user AI sandbox**: Each user receives a dedicated OpenClaw instance running in a Kata VM-isolated pod, Standard Pod, or Azure VM, providing flexible isolation levels.
+- **Three runtime types**: Kata VM (hardware-level isolation), Standard Pod (container-level isolation), and Azure VM (dedicated B2ats_v2 virtual machine).
 - **Multi-channel IM integration**: Users can connect Telegram, Feishu, and Slack bots to their sandbox, enabling AI-powered conversations across messaging platforms.
 - **Azure AI Foundry integration**: GPT-5.4 model deployed via Azure AI Foundry, accessed through a centralized LiteLLM proxy with API key management.
-- **Self-service portal**: Customer portal for chat and integration management; Admin portal for cluster monitoring, user management, and sandbox oversight.
+- **Self-service portal**: Landing page, Customer portal for chat and integration management; Admin portal for cluster monitoring, user management, and sandbox oversight.
+- **HTTPS with Let's Encrypt**: Automated TLS certificate management via cert-manager and Let's Encrypt.
 - **One-command deployment**: A single `install.sh` script provisions the entire stack from Azure infrastructure to running applications.
 
 ### Technology Stack
@@ -62,7 +67,7 @@
 |-------|-----------|
 | Cloud Provider | Microsoft Azure |
 | Container Orchestration | AKS (Kubernetes 1.32) |
-| Sandbox Isolation | Kata Containers (Microsoft Hypervisor / Mshv) |
+| Sandbox Isolation | Kata Containers (Mshv) / Standard Pod / Azure VM |
 | AI Model | Azure OpenAI GPT-5.4 |
 | AI Gateway | LiteLLM Proxy |
 | AI Agent Runtime | OpenClaw |
@@ -71,7 +76,9 @@
 | Infrastructure as Code | Terraform (azurerm ~4.19) |
 | Container Registry | Azure Container Registry (Basic) |
 | Ingress | NGINX Ingress Controller |
+| TLS / Certificates | cert-manager + Let's Encrypt |
 | Network Policy | Calico |
+| Landing Page | Static HTML + nginx:alpine |
 
 ---
 
@@ -90,34 +97,34 @@
                     │ Controller     │
                     └───────┬────────┘
                             │
-              ┌─────────────┼─────────────┐
-              │             │             │
-        /admin/*      /app/*        /api/*
-              │             │             │
-     ┌────────┴──┐  ┌──────┴───┐  ┌──────┴──────┐
-     │ Admin     │  │ Customer │  │ Portal API  │
-     │ Portal    │  │ Portal   │  │ (Fastify)   │
-     │ (Next.js) │  │ (Next.js)│  │ + SQLite DB │
-     └───────────┘  └──────────┘  └──────┬──────┘
-                                         │
-                          ┌──────────────┼──────────────┐
-                          │              │              │
-                    kubectl apply    HTTP /v1/chat   Integration
-                    (Sandbox CRD)    /completions    Management
-                          │              │              │
-                          ▼              ▼              │
-              ┌───────────────────────────────────┐    │
-              │       openclaw namespace          │    │
-              │  ┌─────────┐ ┌─────────┐ ┌─────┐ │    │
-              │  │ oc-fed9 │ │ oc-a851 │ │ ... │ │    │
-              │  │ (Kata)  │ │ (Kata)  │ │     │ │    │
-              │  │ :18789  │ │ :18789  │ │     │ │    │
-              │  └────┬────┘ └────┬────┘ └─────┘ │    │
-              └───────┼──────────┼───────────────┘    │
-                      │          │                     │
-                      ▼          ▼                     │
-              ┌──────────────────────┐                │
-              │   LiteLLM Proxy      │ ◄──────────────┘
+         ┌──────────┬───────┼────────────┬──────────┐
+         │          │       │            │          │
+      /            /admin/*      /app/*       /api/*
+         │          │       │            │          │
+  ┌──────┴───┐ ┌────┴────┐ │   ┌────────┴──┐ ┌────┴────────┐
+  │ Landing  │ │ Admin   │ │   │ Customer  │ │ Portal API  │
+  │ Page     │ │ Portal  │ │   │ Portal    │ │ (Fastify)   │
+  │ (nginx)  │ │(Next.js)│ │   │ (Next.js) │ │ + SQLite DB │
+  └──────────┘ └─────────┘ │   └───────────┘ └──────┬──────┘
+                            │                        │
+                            │         ┌──────────────┼──────────────┐
+                            │         │              │              │
+                            │   kubectl apply    HTTP /v1/chat   az vm create
+                            │   (Sandbox CRD)    /completions    (Azure VM)
+                            │         │              │              │
+                            │         ▼              ▼              ▼
+              ┌─────────────┴─────────────────────────────┐   ┌─────────────┐
+              │       openclaw namespace                  │   │ Azure VMs   │
+              │  ┌─────────┐ ┌─────────┐ ┌─────────────┐ │   │ (B2ats_v2)  │
+              │  │ oc-fed9 │ │ oc-a851 │ │ oc-1f03    │ │   │ ┌─────────┐ │
+              │  │ (Kata)  │ │ (Kata)  │ │ (Standard) │ │   │ │oc-vm-xx │ │
+              │  │ :18789  │ │ :18789  │ │ :18789     │ │   │ │ :18789  │ │
+              │  └────┬────┘ └────┬────┘ └─────┬──────┘ │   │ └────┬────┘ │
+              └───────┼──────────┼─────────────┼────────┘   └──────┼──────┘
+                      │          │             │                    │
+                      ▼          ▼             ▼                   ▼
+              ┌──────────────────────┐                   (direct access
+              │   LiteLLM Proxy      │ ◄──────────────    via public IP)
               │   (litellm namespace) │   /key/generate
               │   :4000               │
               └──────────┬───────────┘
@@ -137,16 +144,21 @@
 AKS Cluster
 ├── System Node Pool (Standard_D4as_v7, 1-3 nodes)
 │   ├── ingress-nginx/      — NGINX Ingress Controller
-│   ├── portals/             — Portal API, Admin Portal, Customer Portal
+│   ├── portals/             — Portal API, Admin Portal, Customer Portal, Landing Page
 │   ├── litellm/             — LiteLLM Proxy + PostgreSQL
+│   ├── cert-manager/        — cert-manager (Let's Encrypt TLS)
 │   ├── agent-sandbox-system/— Sandbox CRD Controller
 │   └── openclaw/            — Standard Pod sandboxes (no Kata isolation)
 │       └── oc-1f03183f (user@example.com, Standard Pod)
 │
-└── Kata Node Pool (Standard_D4s_v5, 1-10 nodes)
-    └── openclaw/            — Per-user Kata-isolated sandbox pods
-        ├── oc-fed9c3d3 (admin@openclaw.ai, Kata VM)
-        └── oc-a8515d82 (jackylam0083@gmail.com, Kata VM)
+├── Kata Node Pool (Standard_D4s_v5, 1-10 nodes)
+│   └── openclaw/            — Per-user Kata-isolated sandbox pods
+│       ├── oc-fed9c3d3 (admin@openclaw.ai, Kata VM)
+│       └── oc-a8515d82 (jackylam0083@gmail.com, Kata VM)
+│
+└── Azure VMs (external, managed via az CLI)
+    └── Standard_B2ats_v2    — Dedicated VM sandboxes
+        └── oc-vm-aedc41f7 (jacky@123.com, Azure VM)
 ```
 
 ---
@@ -172,6 +184,7 @@ The two resource groups are in different regions because GPT-5.4 is only availab
 |--------|------|---------|-------------|
 | System | `10.1.0.0/24` (256 IPs) | System node pool | No (uses AKS LB for outbound) |
 | Kata | `10.1.1.0/24` (256 IPs) | Kata node pool | Yes (static public IP) |
+| VM | `10.1.2.0/24` (256 IPs) | Azure VM sandboxes | No (VMs have public IPs) |
 | Pods | `10.1.16.0/20` (4,096 IPs) | Azure CNI Overlay pod IPs | N/A |
 
 **Design Decisions**:
@@ -280,6 +293,7 @@ Three images are built via ACR Tasks (cloud-based `linux/amd64` builds):
 - `openclaw-portal-api:latest`
 - `openclaw-admin-portal:latest`
 - `openclaw-customer-portal:latest`
+- `openclaw-landing:latest`
 
 ---
 
@@ -362,12 +376,13 @@ portals namespace
 ├── portal-api          (Fastify + SQLite, ClusterIP :3000)
 │   ├── /health         — Health check
 │   ├── /auth/*         — Authentication (login, signup, me)
-│   ├── /admin/*        — Admin endpoints (cluster, users, sandboxes)
+│   ├── /admin/*        — Admin endpoints (cluster, users, sandboxes, VMs)
 │   ├── /chat/*         — Chat routing to OpenClaw sandbox
 │   ├── /integrations/* — IM integration management
 │   └── /webhooks/*     — Feishu webhook receiver
 ├── admin-portal        (Next.js, ClusterIP :3000, path: /admin)
-└── customer-portal     (Next.js, ClusterIP :3000, path: /app)
+├── customer-portal     (Next.js, ClusterIP :3000, path: /app)
+└── landing-page        (nginx:alpine, ClusterIP :3000, path: /)
 ```
 
 ### 5.1 Portal API (Fastify + SQLite)
@@ -391,13 +406,16 @@ The Portal API is the central backend service responsible for:
 | `API_BASE_URL` | Public-facing API URL (`https://<ingress-ip>/api`) |
 | `TLS_CERT_PATH` | Path to TLS cert for webhook endpoints |
 | `DB_PATH` | SQLite database path (`/data/db.sqlite`) |
+| `AZURE_CLIENT_ID` | Service Principal client ID (from K8s Secret `azure-sp-creds`) |
+| `AZURE_CLIENT_SECRET` | Service Principal client secret (from K8s Secret `azure-sp-creds`) |
+| `AZURE_TENANT_ID` | Azure tenant ID (from K8s Secret `azure-sp-creds`) |
 
 **RBAC**: The `portal-api` ServiceAccount has a ClusterRole (`portal-api-sandbox-manager`) granting:
 - `agents.x-k8s.io/sandboxes`: get, list, create, update, patch, delete
 - `pods`: get, list
 - `nodes`: get, list
 
-**Dockerfile**: Installs `kubectl` binary for in-pod sandbox provisioning via `kubectl apply`.
+**Dockerfile**: Based on `node:20-slim` (Debian). Installs `kubectl` binary for in-pod sandbox provisioning via `kubectl apply`, and **Azure CLI** (`az`) for Azure VM lifecycle management. Azure SP credentials are injected via K8s Secret `azure-sp-creds`.
 
 **Default Admin User**:
 - Email: `admin@openclaw.ai`
@@ -414,11 +432,11 @@ The Admin Portal is a Next.js application served at `/admin` with a dark-themed 
 | Page | Path | Features |
 |------|------|----------|
 | Login | `/admin/login` | Email + password authentication |
-| Dashboard | `/admin/dashboard` | Total Users, Active Sandboxes, Cluster Nodes, Sandbox Pods (with live counts); node list with CPU/memory/status |
-| Approvals | `/admin/approvals` | Pending/Rejected/Approved tabs; Approve with runtime type selection modal (Kata VM or Standard Pod); Reject/Delete actions |
+| Dashboard | `/admin/dashboard` | Total Users, Active Sandboxes, Azure VMs, Cluster Nodes, Sandbox Pods (with live counts); node list with CPU/memory/status |
+| Approvals | `/admin/approvals` | Pending/Rejected/Approved tabs; Approve with runtime type selection modal (Kata VM, Standard Pod, or Azure VM B2ats_v2); Switch runtime; Reject/Delete actions |
 | Users | `/admin/users` | User table (name, email, role badge, sandbox status badge, join date) |
-| Cluster | `/admin/cluster` | Node detail cards (name, status, roles, CPU, memory, kubelet version); pods table with namespace filter |
-| Monitoring | `/admin/monitoring` | Sandbox overview cards (total/active/provisioning/failed); sandbox detail table |
+| Cluster | `/admin/cluster` | Node detail cards; pods table with namespace filter and Node column; Azure VMs section |
+| Monitoring | `/admin/monitoring` | Sandbox overview cards (total/active/provisioning/failed); sandbox detail table with Pod/VM name, Type badge (Kata VM / Standard Pod / Azure VM), and status |
 | Models | `/admin/models` | Model catalog cards (gpt-5.4 active, gpt-4o inactive, claude-opus-4-6 inactive) |
 
 **Sidebar**: Lobster emoji icon + "OpenClaw Admin Portal" title.
@@ -444,7 +462,20 @@ The Customer Portal is a Next.js application served at `/app` providing the end-
 5. LiteLLM → Azure OpenAI GPT-5.4
 6. Response flows back through the same chain
 
-**Root URL Redirect**: Accessing `http://<ip>/` redirects to `/app/login` via nginx `app-root` annotation.
+**Root URL Redirect**: Accessing `https://<domain>/` shows the Landing Page (see §5.4).
+
+### 5.4 Landing Page (Static HTML)
+
+The Landing Page is a static HTML/CSS/JS page served by nginx:alpine at the root path `/`.
+
+**Features**:
+- Hero section with platform introduction
+- Login/Register tabbed authentication card (calls `/api/auth/login` and `/api/auth/register`)
+- Feature cards (Multi-modal AI, Sandbox Isolation, Multi-Channel IM, etc.)
+- Architecture overview cards
+- Auto-redirects logged-in users to the appropriate portal based on role
+
+**Deployment**: nginx:alpine container serving static files on port 3000, deployed as a separate K8s Deployment and Service in the `portals` namespace.
 
 ---
 
@@ -578,31 +609,79 @@ This ensures no secrets are stored in the Sandbox CRD manifest or ConfigMaps.
 
 ### 6.2 Runtime Type Selection
 
-When an Admin approves a user via the Admin Portal's **Approvals** page, a modal dialog presents two options:
+When an Admin approves a user via the Admin Portal's **Approvals** page, a modal dialog presents three options:
 
 | Option | Description | Icon |
 |--------|-------------|------|
 | **Kata VM Isolation** | Hardware-level VM isolation via Microsoft Hypervisor. Recommended for production and sensitive workloads. | Shield |
-| **Standard Pod** | Container-level isolation. Suitable for development and testing. | Box |
+| **Standard Pod** | Container-level isolation. Suitable for development and testing. | Container |
+| **Azure VM (B2ats_v2)** | Dedicated Azure VM. Full machine-level isolation with public IP access. | Monitor |
 
-The selected `runtime_type` ('kata' or 'standard') is stored in the `sandboxes` table and flows through the entire provisioning chain:
+The selected `runtime_type` ('kata', 'standard', or 'azure-vm') is stored in the `sandboxes` table and flows through the entire provisioning chain:
 
 ```
 Admin selects runtime type → POST /admin/users/:id/approve { runtime_type }
   → INSERT INTO sandboxes (runtime_type)
   → provisionSandbox(userId, email, runtimeType)
-    → buildSandboxManifest(..., runtimeType)
-      → buildStartupCommand(..., runtimeType)
+    → if 'azure-vm': provisionAzureVMSandbox() → az vm create
+    → else: buildSandboxManifest() → kubectl apply
 ```
 
-### 6.3 Provisioning Flow
+Admins can also **switch** an existing user's runtime type via the Approvals page. The old sandbox (pod or VM) is deleted and a new one is provisioned with the selected runtime type.
+
+### 6.3 Azure VM Sandbox
+
+Azure VM sandboxes run as dedicated `Standard_B2ats_v2` virtual machines in the AKS VNet's VM subnet, managed via Azure CLI from the Portal API container.
+
+**VM Configuration**:
+
+| Parameter | Value |
+|-----------|-------|
+| VM Size | `Standard_B2ats_v2` (2 vCPUs, 1 GB RAM, burstable) |
+| Image | Ubuntu 24.04 LTS |
+| VNet/Subnet | Same VNet as AKS, dedicated `vm-subnet` (`10.1.2.0/24`) |
+| Public IP | Dynamic (assigned at creation) |
+| NSG | `oc-openclaw-vm-nsg` (allows SSH port 22, OpenClaw port 18789) |
+| Admin User | `azureuser` |
+| Auth | SSH key (auto-generated) |
+
+**Provisioning Flow**:
+
+```
+provisionAzureVMSandbox(userId, email)
+  ├── 1. ensureSubnet() — create VM subnet if not exists
+  ├── 2. ensureNSG() — create NSG with SSH + OpenClaw rules
+  ├── 3. az vm create — create B2ats_v2 VM with cloud-init
+  │     cloud-init installs:
+  │       - Node.js 20 (via nodesource)
+  │       - OpenClaw (npm install -g @anthropic-ai/openclaw)
+  │       - OpenClaw config (LiteLLM API key, model config)
+  │       - systemd service for openclaw-gateway
+  ├── 4. Get VM resource ID and public IP
+  ├── 5. Update DB: vm_name, vm_resource_id, vm_public_ip, status='running'
+  └── 6. Endpoint: http://<public-ip>:18789
+```
+
+**Azure Authentication**: Portal API authenticates to Azure via a **Service Principal** (`openclaw-portal-api-sp`) with Contributor role on the resource group. Credentials are stored in K8s Secret `azure-sp-creds` and injected as environment variables. The first `az` command triggers `az login --service-principal` automatically.
+
+**VM Deletion**: When an admin deletes a user or switches runtime type away from Azure VM, the VM and associated resources (NIC, public IP, OS disk) are cleaned up via `az vm delete --force-deletion yes`.
+
+**Database Schema** (sandboxes table, Azure VM fields):
+
+| Column | Type | Description |
+|--------|------|-------------|
+| `vm_resource_id` | TEXT | Azure resource ID of the VM |
+| `vm_name` | TEXT | VM name (e.g., `oc-vm-aedc41f7`) |
+| `vm_public_ip` | TEXT | Public IP address |
+
+### 6.4 Provisioning Flow
 
 ```
 User Registration → Admin Approval (with runtime type selection)
          │
          ▼
   Create sandbox record
-  (status: 'provisioning', runtime_type: 'kata'|'standard')
+  (status: 'provisioning', runtime_type: 'kata'|'standard'|'azure-vm')
          │
          ▼
   Server startup detects
@@ -611,15 +690,22 @@ User Registration → Admin Approval (with runtime type selection)
          ▼
   provisionSandbox(userId, email, runtimeType)
          │
-         ├── 1. Generate sandbox name: oc-<userId-8chars>
-         ├── 2. Read user's connected IM channels from DB
-         ├── 3. Build OpenClaw config JSON (with placeholders, no real secrets)
-         ├── 4. Build K8s Secret with real credentials
-         ├── 5. Build Sandbox CRD manifest (varies by runtimeType)
-         ├── 6. kubectl apply -f <secret-manifest>
-         ├── 7. kubectl apply -f <sandbox-manifest>
-         ├── 8. Update DB: endpoint = http://oc-<id>.openclaw.svc.cluster.local:18789
-         └── 9. Update DB: status = 'creating'
+         ├──[azure-vm]──► provisionAzureVMSandbox()
+         │                ├── ensureSubnet() + ensureNSG()
+         │                ├── az vm create (cloud-init)
+         │                ├── Update DB: vm_name, vm_public_ip
+         │                └── status = 'running'
+         │
+         └──[kata/standard]──► buildSandboxManifest()
+                               ├── 1. Generate sandbox name: oc-<userId-8chars>
+                               ├── 2. Read user's connected IM channels from DB
+                               ├── 3. Build OpenClaw config JSON (with placeholders)
+                               ├── 4. Build K8s Secret with real credentials
+                               ├── 5. Build Sandbox CRD manifest (varies by runtimeType)
+                               ├── 6. kubectl apply -f <secret-manifest>
+                               ├── 7. kubectl apply -f <sandbox-manifest>
+                               ├── 8. Update DB: endpoint, pod_name
+                               └── 9. status = 'creating' → 'running'
                   │
                   ▼
          Sandbox Controller creates pod
@@ -636,7 +722,7 @@ User Registration → Admin Approval (with runtime type selection)
 
 **Status Lifecycle**: `provisioning` → `creating` → `running` (or `failed`)
 
-### 6.4 Chat Routing
+### 6.5 Chat Routing
 
 Portal API routes chat messages to the user's sandbox via an OpenAI-compatible endpoint:
 
@@ -655,7 +741,7 @@ Body:
 
 The sandbox gateway processes the message through the OpenClaw agent pipeline and returns the AI response.
 
-### 6.5 Gateway Management (Standard Pod)
+### 6.6 Gateway Management (Standard Pod)
 
 In Standard Pod sandboxes, the OpenClaw gateway runs as a **background process** rather than PID 1. This allows agents to restart the gateway without requiring pod recreation.
 
@@ -678,7 +764,7 @@ The workspace's `AGENTS.md` file is auto-appended with a "Gateway Management" se
 
 > **Note**: Kata VM sandboxes do NOT have these scripts. The gateway runs as PID 1 via `exec`, and restarting it requires pod recreation via the portal or `kubectl`.
 
-### 6.6 Resource Profile & Capacity Planning
+### 6.7 Resource Profile & Capacity Planning
 
 **Per-Sandbox Resources**:
 
@@ -827,6 +913,7 @@ All integration operations (connect/disconnect) trigger `updateSandboxChannels()
 | Layer | Mechanism | Scope |
 |-------|-----------|-------|
 | **Hardware** | Kata VM isolation (Microsoft Hypervisor) | Kata VM sandboxes run in their own lightweight VM |
+| **Machine** | Dedicated Azure VM (B2ats_v2) | Azure VM sandboxes run on a dedicated virtual machine |
 | **Container** | Standard Pod isolation (runc) | Standard Pod sandboxes run with container-level isolation |
 | **Network** | Calico network policies | Pod-to-pod isolation capability |
 | **Container** | securityContext hardening | Non-root (UID 1000), drop ALL capabilities, no privilege escalation |
@@ -855,6 +942,7 @@ securityContext:
 | Portal API ↔ User | JWT (HS256, 24h expiry) |
 | Portal API ↔ LiteLLM | API Key (generated via `/key/generate`) |
 | Portal API ↔ Sandbox | Bearer token (LITELLM_API_KEY) |
+| Portal API ↔ Azure (VM mgmt) | Service Principal (Contributor on RG, via K8s Secret `azure-sp-creds`) |
 | LiteLLM ↔ Azure OpenAI | API Key (from AI Services account) |
 | AKS ↔ ACR | Managed Identity (AcrPull role) |
 
@@ -904,18 +992,15 @@ Internet → Azure Load Balancer → NGINX Ingress Controller → Backend Servic
 - Service type: `LoadBalancer`
 - `externalTrafficPolicy: Local` (preserves client source IP)
 
-**Ingress Rules**:
+**Ingress Rules** (3 Ingress resources):
 
-| Path | Backend | Protocol |
-|------|---------|----------|
-| `/` | Redirect to `/app/login` | HTTP (302) |
-| `/admin/*` | admin-portal:3000 | HTTP |
-| `/app/*` | customer-portal:3000 | HTTP |
-| `/api(/\|$)(.*)` | portal-api:3000 (rewrite to `/$2`) | HTTPS |
+| Ingress | Path | Backend | Host |
+|---------|------|---------|------|
+| `landing-ingress` | `/` | landing-page:3000 | `demo.openclaw-azure.org` |
+| `portals-ingress` | `/admin/*`, `/app/*` | admin-portal:3000, customer-portal:3000 | `demo.openclaw-azure.org` |
+| `portals-api-ingress` | `/api(/\|$)(.*)` | portal-api:3000 (rewrite to `/$2`) | `demo.openclaw-azure.org` |
 
-**TLS**: Self-signed certificate generated during install for the ingress IP. Used for:
-- API endpoint HTTPS (`/api/*`)
-- Webhook endpoints that require HTTPS (e.g., Feishu URL verification)
+**TLS**: Automated via cert-manager + Let's Encrypt (see §11).
 
 ### Internal Service Communication
 
@@ -936,7 +1021,40 @@ Internet → Azure Load Balancer → NGINX Ingress Controller → Backend Servic
 
 ---
 
-## 11. Deployment Automation (install.sh)
+## 11. HTTPS & Certificate Management
+
+TLS certificates are managed automatically via **cert-manager** v1.17.1 with **Let's Encrypt** as the certificate authority.
+
+### Architecture
+
+```
+cert-manager (cert-manager namespace)
+  ├── ClusterIssuer: letsencrypt-prod
+  │     solver: HTTP-01 (via NGINX Ingress)
+  │     ACME server: https://acme-v2.api.letsencrypt.org/directory
+  └── Certificate: openclaw-demo-tls (portals namespace)
+        dnsNames: [demo.openclaw-azure.org]
+        Secret: openclaw-demo-tls (TLS type)
+```
+
+### Configuration
+
+| Parameter | Value |
+|-----------|-------|
+| cert-manager Version | v1.17.1 |
+| ClusterIssuer | `letsencrypt-prod` |
+| ACME Challenge | HTTP-01 (via Ingress) |
+| Domain | `demo.openclaw-azure.org` |
+| TLS Secret | `openclaw-demo-tls` (namespace: `portals`) |
+
+All three Ingress resources reference the same TLS secret and include:
+- `cert-manager.io/cluster-issuer: letsencrypt-prod` annotation
+- `tls` block with `secretName: openclaw-demo-tls` and `hosts: [demo.openclaw-azure.org]`
+- `nginx.ingress.kubernetes.io/ssl-redirect: "true"` for HTTPS enforcement
+
+---
+
+## 12. Deployment Automation (install.sh)
 
 The entire stack is deployed via a single `install.sh` script with interactive prompts.
 
@@ -1005,20 +1123,24 @@ After `install.sh` completes:
 
 ---
 
-## 12. Appendix: Quick Reference
+## 13. Appendix: Quick Reference
 
 ### Current Deployment
 
 | Item | Value |
 |------|-------|
-| Admin Portal | `http://<ingress-ip>/admin` |
-| Customer Portal | `http://<ingress-ip>/app` |
-| API | `https://<ingress-ip>/api` |
+| Landing Page | `https://demo.openclaw-azure.org/` |
+| Admin Portal | `https://demo.openclaw-azure.org/admin` |
+| Customer Portal | `https://demo.openclaw-azure.org/app` |
+| API | `https://demo.openclaw-azure.org/api` |
+| Domain | `demo.openclaw-azure.org` |
 | AKS Region | Configurable (default: `southeastasia`) |
 | Foundry Region | Configurable (default: `eastus2`) |
 | System Nodes | Standard_D4as_v7 (1-3 nodes) |
 | Kata Nodes | Standard_D4s_v5 (1-10 nodes) |
-| Runtime Types | Kata VM (hardware isolation) or Standard Pod (container isolation) |
+| Azure VM Size | Standard_B2ats_v2 (2 vCPU, 1 GB, burstable) |
+| Runtime Types | Kata VM (hardware isolation), Standard Pod (container isolation), or Azure VM (dedicated VM) |
+| TLS | cert-manager + Let's Encrypt (auto-renewal) |
 
 ### Repository Structure
 
@@ -1053,19 +1175,20 @@ openclaw-on-aks/
 │   └── ttl-controller.yaml
 ├── portals/
 │   ├── api/                            # Portal API (Fastify + TypeScript)
-│   │   ├── Dockerfile
+│   │   ├── Dockerfile                  # node:20-slim + kubectl + az CLI
 │   │   └── src/
 │   │       ├── index.ts                # Server entry + auto-provisioning
-│   │       ├── db/client.ts            # SQLite schema + admin seeding
+│   │       ├── db/client.ts            # SQLite schema + migrations + admin seeding
 │   │       ├── middleware/auth.ts       # JWT authentication
 │   │       ├── routes/
 │   │       │   ├── auth.ts             # Login, signup, token refresh
-│   │       │   ├── admin.ts            # Cluster overview, user mgmt
+│   │       │   ├── admin.ts            # Cluster overview, user mgmt, VMs
 │   │       │   ├── chat.ts             # Chat message routing
 │   │       │   ├── integrations.ts     # IM integration CRUD
 │   │       │   └── webhooks.ts         # Feishu webhook handler
 │   │       └── services/
 │   │           ├── sandbox.ts          # Sandbox provisioning + config
+│   │           ├── azure-vm.ts         # Azure VM lifecycle (create/delete/list)
 │   │           ├── openclaw.ts         # Chat forwarding to sandbox
 │   │           └── k8s.ts              # kubectl wrapper
 │   ├── admin/                          # Admin Portal (Next.js)
@@ -1084,6 +1207,10 @@ openclaw-on-aks/
 │   │       ├── integrations/page.tsx
 │   │       ├── login/page.tsx
 │   │       └── signup/page.tsx
+│   ├── landing/                        # Landing Page (Static HTML)
+│   │   ├── index.html                  # Platform intro + auth forms
+│   │   ├── nginx.conf                  # nginx config (port 3000)
+│   │   └── Dockerfile                  # nginx:alpine
 │   └── k8s/                            # K8s manifests for portals
 │       ├── namespace.yaml
 │       ├── pvc.yaml
@@ -1091,7 +1218,9 @@ openclaw-on-aks/
 │       ├── api-deployment.yaml
 │       ├── admin-portal-deployment.yaml
 │       ├── customer-portal-deployment.yaml
-│       └── ingress.yaml
+│       ├── landing-deployment.yaml     # Landing page deployment + service
+│       ├── ingress.yaml                # 3 Ingress resources
+│       └── cluster-issuer.yaml         # Let's Encrypt ClusterIssuer
 └── docs/
     └── OpenClaw-on-AKS-Architecture.md # This document
 ```
@@ -1106,4 +1235,6 @@ openclaw-on-aks/
 6. **OpenClaw workspace directory**: Must `mkdir -p /home/node/.openclaw/workspace` before starting gateway, or agent is skipped.
 7. **Telegram uses polling, not webhooks**: Never call `setWebhook` for OpenClaw Telegram bots.
 8. **Standard Pod gateway restart**: Standard Pod sandboxes have gateway restart scripts; Kata VM sandboxes require pod recreation to restart gateway.
-9. **Runtime type is immutable**: Once a sandbox is provisioned with a runtime type, changing it requires deleting and re-provisioning the sandbox.
+9. **Runtime type switching**: Admins can switch a user's runtime type (Kata VM ↔ Standard Pod ↔ Azure VM) via the Approvals page. The old sandbox is deleted and a new one is provisioned.
+10. **Azure VM sandbox requires az CLI**: The portal-api Dockerfile must include Azure CLI. SP credentials are stored in K8s Secret `azure-sp-creds`.
+11. **Azure VM cleanup**: When deleting a user with an Azure VM sandbox, the VM and associated resources (NIC, public IP, OS disk) are automatically deleted.

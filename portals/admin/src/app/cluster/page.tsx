@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import AppLayout from '@/components/layout/app-layout';
-import { getNodes, getPods } from '@/lib/api';
+import { getNodes, getPods, getVMs } from '@/lib/api';
 
 interface Node {
   name: string;
@@ -23,14 +23,25 @@ interface Pod {
   nodeName?: string;
 }
 
+interface VM {
+  name: string;
+  vmSize: string;
+  location: string;
+  status: string;
+  publicIp: string;
+  userEmail: string;
+}
+
 export default function ClusterPage() {
   const [nodes, setNodes] = useState<Node[]>([]);
   const [pods, setPods] = useState<Pod[]>([]);
+  const [vms, setVMs] = useState<VM[]>([]);
   const [filter, setFilter] = useState('');
 
   useEffect(() => {
     getNodes().then((data) => setNodes(data.nodes || data || [])).catch(() => {});
     getPods().then((data) => setPods(data.pods || data || [])).catch(() => {});
+    getVMs().then((data) => setVMs(Array.isArray(data) ? data : [])).catch(() => {});
   }, []);
 
   const namespaces = [...new Set(pods.map((p) => p.namespace))].sort();
@@ -137,6 +148,55 @@ export default function ClusterPage() {
                     </td>
                     <td className="px-4 py-3 text-gray-500">{pod.restarts ?? 0}</td>
                     <td className="px-4 py-3 text-gray-500">{pod.nodeName || '-'}</td>
+                  </tr>
+                ))
+              )}
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      {/* Azure VMs Section */}
+      <div className="mt-8">
+        <h2 className="text-sm font-medium text-gray-300 mb-3">Azure VMs ({vms.length})</h2>
+        <div className="bg-white/[0.03] border border-white/[0.06] rounded-xl overflow-hidden backdrop-blur-sm">
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="border-b border-white/[0.06]">
+                <th className="text-left px-4 py-3 text-gray-500 font-medium">Name</th>
+                <th className="text-left px-4 py-3 text-gray-500 font-medium">Size</th>
+                <th className="text-left px-4 py-3 text-gray-500 font-medium">Status</th>
+                <th className="text-left px-4 py-3 text-gray-500 font-medium">Public IP</th>
+                <th className="text-left px-4 py-3 text-gray-500 font-medium">User</th>
+              </tr>
+            </thead>
+            <tbody>
+              {vms.length === 0 ? (
+                <tr>
+                  <td colSpan={5} className="px-4 py-8 text-center text-gray-600">
+                    No Azure VM sandboxes
+                  </td>
+                </tr>
+              ) : (
+                vms.map((vm) => (
+                  <tr key={vm.name} className="border-b border-white/[0.04] last:border-0">
+                    <td className="px-4 py-3 text-gray-200">{vm.name}</td>
+                    <td className="px-4 py-3 text-gray-400">{vm.vmSize}</td>
+                    <td className="px-4 py-3">
+                      <span
+                        className={`text-xs px-2 py-0.5 rounded-full ${
+                          vm.status === 'VM running'
+                            ? 'bg-green-500/10 text-green-400'
+                            : vm.status === 'VM deallocated'
+                              ? 'bg-gray-500/10 text-gray-400'
+                              : 'bg-yellow-500/10 text-yellow-400'
+                        }`}
+                      >
+                        {vm.status}
+                      </span>
+                    </td>
+                    <td className="px-4 py-3 text-gray-400">{vm.publicIp || '-'}</td>
+                    <td className="px-4 py-3 text-gray-500">{vm.userEmail || '-'}</td>
                   </tr>
                 ))
               )}

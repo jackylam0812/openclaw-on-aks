@@ -3,6 +3,7 @@ import { writeFileSync, unlinkSync } from 'fs';
 import { tmpdir } from 'os';
 import { join } from 'path';
 import db from '../db/client.js';
+import { provisionAzureVM, deleteAzureVM } from './azure-vm.js';
 
 const LITELLM_URL = process.env.OPENCLAW_API_URL || 'http://litellm.litellm.svc.cluster.local:4000';
 const LITELLM_API_KEY = process.env.LITELLM_API_KEY || 'sk-1234';
@@ -470,6 +471,10 @@ function getUserChannels(userId: string): ChannelConfig {
 }
 
 export async function provisionSandbox(userId: string, userEmail: string, runtimeType: string = 'kata'): Promise<void> {
+  if (runtimeType === 'azure-vm') {
+    return provisionAzureVMSandbox(userId, userEmail);
+  }
+
   const sandboxName = `oc-${userId.slice(0, 8)}`;
   const namespace = 'openclaw';
 
@@ -484,7 +489,7 @@ export async function provisionSandbox(userId: string, userEmail: string, runtim
     applyManifest(manifest, sandboxName);
 
     const endpoint = `http://${sandboxName}.${namespace}.svc.cluster.local:18789`;
-    db.prepare('UPDATE sandboxes SET pod_name = ?, endpoint = ?, status = ? WHERE user_id = ?')
+    db.prepare('UPDATE sandboxes SET pod_name = ?, endpoint = ?, status = ?, vm_name = NULL, vm_resource_id = NULL, vm_public_ip = NULL WHERE user_id = ?')
       .run(sandboxName, endpoint, 'creating', userId);
 
     console.log(`Sandbox ${sandboxName} created for user ${userEmail}`);
@@ -492,6 +497,24 @@ export async function provisionSandbox(userId: string, userEmail: string, runtim
     console.error('Sandbox provisioning failed:', error.message);
     db.prepare('UPDATE sandboxes SET status = ? WHERE user_id = ?')
       .run('failed', userId);
+  }
+}
+
+async function provisionAzureVMSandbox(userId: string, userEmail: string): Promise<void> {
+  try {
+    db.prepare('UPDATE sandboxes SET status = ? WHERE user_id = ?').run('provisioning', userId);
+
+    const { vmName, vmResourceId, publicIp } = await provisionAzureVM(userId, userEmail);
+
+    const endpoint = `http://${publicIp}:18789`;
+    db.prepare(
+      'UPDATE sandboxes SET vm_name = ?, vm_resource_id = ?, vm_public_ip = ?, endpoint = ?, pod_name = NULL, status = ?, ready_at = CURRENT_TIMESTAMP WHERE user_id = ?'
+    ).run(vmName, vmResourceId, publicIp, endpoint, 'running', userId);
+
+    console.log(`Azure VM sandbox ${vmName} provisioned for user ${userEmail}`);
+  } catch (error: any) {
+    console.error('Azure VM provisioning failed:', error.message);
+    db.prepare('UPDATE sandboxes SET status = ? WHERE user_id = ?').run('failed', userId);
   }
 }
 
@@ -572,8 +595,16 @@ export async function syncAllSandboxes(): Promise<{ success: number; failed: num
 
 /**
  * Delete a sandbox and its associated Secret.
+ * For azure-vm type, also delete the Azure VM.
  */
-export function deleteSandbox(sandboxName: string, namespace: string = 'openclaw'): void {
+export function deleteSandbox(sandboxName: string, namespace: string = 'openclaw', runtimeType?: string, vmName?: string): void {
+  if (runtimeType === 'azure-vm' && vmName) {
+    deleteAzureVM(vmName).catch((err) => {
+      console.warn(`Failed to delete Azure VM ${vmName}: ${err.message}`);
+    });
+    return;
+  }
+
   try {
     execSync(`kubectl delete sandbox ${sandboxName} -n ${namespace} --grace-period=10`, {
       encoding: 'utf-8',
