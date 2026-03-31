@@ -81,21 +81,18 @@ db.exec(`CREATE TABLE IF NOT EXISTS api_usage_logs (
 )`);
 
 // Migration: add lifecycle columns to sandboxes table if missing
-for (const col of [
-  { name: 'last_activity_at', def: 'CURRENT_TIMESTAMP' },
-  { name: 'stopped_at', def: 'NULL' },
-]) {
+for (const col of ['last_activity_at', 'stopped_at']) {
   try {
-    db.exec(`ALTER TABLE sandboxes ADD COLUMN ${col.name} DATETIME DEFAULT ${col.def}`);
-    console.log(`Migration: added ${col.name} column to sandboxes table`);
+    db.exec(`ALTER TABLE sandboxes ADD COLUMN ${col} DATETIME`);
+    console.log(`Migration: added ${col} column to sandboxes table`);
   } catch {
     // Column already exists
   }
 }
 
-// Migration: initialize last_activity_at for existing running sandboxes
+// Migration: initialize last_activity_at for existing sandboxes
 try {
-  db.exec("UPDATE sandboxes SET last_activity_at = CURRENT_TIMESTAMP WHERE last_activity_at IS NULL AND status = 'running'");
+  db.exec("UPDATE sandboxes SET last_activity_at = CURRENT_TIMESTAMP WHERE last_activity_at IS NULL");
 } catch {}
 
 // Seed default model if models table is empty
