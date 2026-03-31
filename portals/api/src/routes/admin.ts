@@ -545,14 +545,12 @@ export default async function adminRoutes(app: FastifyInstance) {
   app.get('/admin/usage/litellm', async (request) => {
     const { days } = request.query as { days?: string };
     const numDays = Math.min(parseInt(days || '30', 10) || 30, 365);
-    const startDate = new Date(Date.now() - numDays * 86400000).toISOString().slice(0, 10);
-    const endDate = new Date().toISOString().slice(0, 10);
     try {
       const [logs, globalSpend] = await Promise.all([
-        getSpendLogs({ startDate, endDate }),
+        getSpendLogs(2000),
         getGlobalSpend().catch(() => ({ spend: 0, max_budget: 0 })),
       ]);
-      const agg = aggregateSpendLogs(logs);
+      const agg = aggregateSpendLogs(logs, numDays);
       return {
         ...agg,
         globalSpend: globalSpend.spend,

@@ -40,13 +40,9 @@ export interface LiteLLMSpendLog {
   end_user: string;
 }
 
-/** Get spend logs from LiteLLM, optionally filtered by date range. */
-export async function getSpendLogs(opts: { startDate?: string; endDate?: string; limit?: number } = {}): Promise<LiteLLMSpendLog[]> {
-  const query: Record<string, string> = {};
-  if (opts.startDate) query.start_date = opts.startDate;
-  if (opts.endDate) query.end_date = opts.endDate;
-  if (opts.limit) query.limit = String(opts.limit);
-  return litellmFetch('/spend/logs', query);
+/** Get recent spend logs from LiteLLM (individual request entries). */
+export async function getSpendLogs(limit = 2000): Promise<LiteLLMSpendLog[]> {
+  return litellmFetch('/spend/logs', { limit: String(limit) });
 }
 
 /** Get total global spend. */
@@ -60,11 +56,18 @@ export async function getModelInfo(): Promise<any[]> {
   return data.data || [];
 }
 
-/** Aggregate spend logs into summary stats. */
-export function aggregateSpendLogs(logs: LiteLLMSpendLog[]) {
+/** Aggregate spend logs into summary stats, filtered by number of days. */
+export function aggregateSpendLogs(allLogs: LiteLLMSpendLog[], days = 30) {
   const now = new Date();
   const todayStr = now.toISOString().slice(0, 10);
   const monthStr = now.toISOString().slice(0, 7);
+  const cutoffMs = now.getTime() - days * 86400000;
+
+  // Filter logs to the requested time window
+  const logs = allLogs.filter(log => {
+    const t = log.startTime ? new Date(log.startTime).getTime() : 0;
+    return t >= cutoffMs;
+  });
 
   const today = { tokens: 0, promptTokens: 0, completionTokens: 0, cost: 0, requests: 0, totalLatencyMs: 0, errors: 0 };
   const month = { tokens: 0, cost: 0, requests: 0 };
