@@ -2,7 +2,7 @@ import { EmailClient } from '@azure/communication-email';
 import db from '../db/client.js';
 
 const ACS_CONNECTION_STRING = process.env.ACS_CONNECTION_STRING || '';
-const SENDER_ADDRESS = process.env.ACS_SENDER_ADDRESS || 'noreply@openclaw-azure.org';
+const SENDER_ADDRESS = process.env.ACS_SENDER_ADDRESS || 'DoNotReply@openclaw-azure.org';
 const VERIFICATION_CODE_TTL_MS = 10 * 60 * 1000; // 10 minutes
 
 let emailClient: EmailClient | null = null;
