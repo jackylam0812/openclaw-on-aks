@@ -692,24 +692,26 @@ export async function stopSandbox(userId: string): Promise<{ success: boolean; m
     if (sandbox.runtime_type === 'azure-vm' && sandbox.vm_name) {
       await deallocateAzureVM(sandbox.vm_name);
     } else if (sandbox.pod_name) {
-      // Delete pod via Sandbox CR scale or pod deletion — Sandbox CR + PVC persists
+      const ns = sandbox.namespace || 'openclaw';
+      // Scale Sandbox CR replicas to 0 — Pod is terminated but Sandbox CR and PVC persist
       try {
-        execSync(`kubectl delete pod -n ${sandbox.namespace || 'openclaw'} -l sandbox=${sandbox.pod_name} --grace-period=10`, {
+        execSync(`kubectl patch sandbox ${sandbox.pod_name} -n ${ns} --type=merge -p '{"spec":{"replicas":0}}'`, {
           encoding: 'utf-8', timeout: 30000,
         });
-      } catch {}
-      // Scale sandbox to 0 by patching the Sandbox CR replicas if supported,
-      // otherwise delete the Sandbox CR containers (pods die, PVC stays)
-      try {
-        execSync(`kubectl delete sandbox ${sandbox.pod_name} -n ${sandbox.namespace || 'openclaw'} --grace-period=10`, {
-          encoding: 'utf-8', timeout: 30000,
-        });
-      } catch {}
+      } catch (e: any) {
+        console.error(`Failed to scale sandbox ${sandbox.pod_name} to 0:`, e.message);
+        // Fallback: just delete the pod directly (PVC still persists with StatefulSet-like behavior)
+        try {
+          execSync(`kubectl delete pod ${sandbox.pod_name} -n ${ns} --grace-period=10`, {
+            encoding: 'utf-8', timeout: 30000,
+          });
+        } catch {}
+      }
     }
 
     db.prepare('UPDATE sandboxes SET status = ?, stopped_at = CURRENT_TIMESTAMP WHERE user_id = ?')
       .run('stopped', userId);
-    console.log(`Sandbox for user ${userId} stopped (sleeping)`);
+    console.log(`Sandbox for user ${userId} stopped (sleeping via replicas=0)`);
     return { success: true, message: 'Sandbox stopped' };
   } catch (err: any) {
     console.error(`Failed to stop sandbox for ${userId}:`, err.message);
@@ -739,12 +741,21 @@ export async function startSandbox(userId: string): Promise<{ success: boolean; 
       const endpoint = newIp ? `http://${newIp}:18789` : sandbox.endpoint;
       db.prepare('UPDATE sandboxes SET status = ?, endpoint = ?, vm_public_ip = ?, last_activity_at = CURRENT_TIMESTAMP, stopped_at = NULL WHERE user_id = ?')
         .run('running', endpoint, newIp || sandbox.vm_public_ip, userId);
-    } else {
-      // Re-provision K8s sandbox (PVC data persists via azure-files-premium RWX)
+    } else if (sandbox.pod_name) {
+      const ns = sandbox.namespace || 'openclaw';
       db.prepare('UPDATE sandboxes SET status = ? WHERE user_id = ?').run('starting', userId);
-      await provisionSandbox(userId, user.email, sandbox.runtime_type || 'kata');
-      db.prepare('UPDATE sandboxes SET last_activity_at = CURRENT_TIMESTAMP, stopped_at = NULL WHERE user_id = ?')
-        .run(userId);
+      // Scale Sandbox CR replicas back to 1 — Pod restarts with existing PVC (memory preserved)
+      try {
+        execSync(`kubectl patch sandbox ${sandbox.pod_name} -n ${ns} --type=merge -p '{"spec":{"replicas":1}}'`, {
+          encoding: 'utf-8', timeout: 30000,
+        });
+      } catch (e: any) {
+        console.error(`Failed to scale sandbox ${sandbox.pod_name} to 1:`, e.message);
+        // Fallback: re-provision (will create new PVC if needed)
+        await provisionSandbox(userId, user.email, sandbox.runtime_type || 'kata');
+      }
+      db.prepare('UPDATE sandboxes SET status = ?, last_activity_at = CURRENT_TIMESTAMP, stopped_at = NULL WHERE user_id = ?')
+        .run('running', userId);
     }
 
     console.log(`Sandbox for user ${userId} started (waking)`);
