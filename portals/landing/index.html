@@ -140,6 +140,17 @@
     }
     .auth-submit:hover { opacity: 0.9; }
     .auth-submit:disabled { opacity: 0.5; cursor: not-allowed; }
+    .code-row { display: flex; gap: 8px; }
+    .code-row input { flex: 1; }
+    .send-code-btn {
+      padding: 10px 14px; border-radius: 10px; font-size: 12px; font-weight: 500;
+      white-space: nowrap; cursor: pointer; transition: all 0.2s;
+      background: rgba(147,51,234,0.2); border: 1px solid rgba(147,51,234,0.3);
+      color: #c084fc;
+    }
+    .send-code-btn:hover { background: rgba(147,51,234,0.3); }
+    .send-code-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+    .code-success { font-size: 12px; color: #4ade80; margin-top: -8px; }
     .auth-error {
       padding: 10px 14px; border-radius: 8px; font-size: 13px;
       background: rgba(239,68,68,0.1); border: 1px solid rgba(239,68,68,0.2);
@@ -331,6 +342,14 @@
           <label>密码</label>
           <input type="password" id="reg-password" placeholder="设置密码 (至少6位)" required minlength="6" />
         </div>
+        <div class="form-group">
+          <label>验证码</label>
+          <div class="code-row">
+            <input type="text" id="reg-code" placeholder="000000" maxlength="6" pattern="[0-9]{6}" required style="letter-spacing:0.2em;font-family:monospace" />
+            <button type="button" class="send-code-btn" id="send-code-btn" onclick="handleSendCode()">发送验证码</button>
+          </div>
+          <p id="code-success" class="code-success" style="display:none"></p>
+        </div>
         <button type="submit" class="auth-submit" id="reg-btn">注册</button>
         <p class="auth-link">已有账号？<a href="#" onclick="switchTab('signin'); return false;">立即登录</a></p>
       </form>
@@ -482,6 +501,45 @@
       }
     }
 
+    let codeCooldown = 0;
+    let cooldownTimer = null;
+
+    async function handleSendCode() {
+      const email = document.getElementById('reg-email').value;
+      if (!email) { showError('请先填写邮箱'); return; }
+      const btn = document.getElementById('send-code-btn');
+      btn.disabled = true;
+      btn.textContent = '发送中...';
+      document.getElementById('auth-error').classList.remove('show');
+      try {
+        const res = await fetch(`${API_URL}/auth/send-code`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ email })
+        });
+        const data = await res.json();
+        if (!res.ok) { showError(data.error || '发送失败'); btn.disabled = false; btn.textContent = '发送验证码'; return; }
+        const successEl = document.getElementById('code-success');
+        successEl.textContent = `验证码已发送至 ${email}`;
+        successEl.style.display = 'block';
+        codeCooldown = 60;
+        cooldownTimer = setInterval(() => {
+          codeCooldown--;
+          if (codeCooldown <= 0) {
+            clearInterval(cooldownTimer);
+            btn.disabled = false;
+            btn.textContent = '重新发送';
+          } else {
+            btn.textContent = `${codeCooldown}s`;
+          }
+        }, 1000);
+      } catch (err) {
+        showError('网络错误，请稍后重试');
+        btn.disabled = false;
+        btn.textContent = '发送验证码';
+      }
+    }
+
     async function handleRegister(e) {
       e.preventDefault();
       const btn = document.getElementById('reg-btn');
@@ -492,10 +550,12 @@
         const name = document.getElementById('reg-name').value;
         const email = document.getElementById('reg-email').value;
         const password = document.getElementById('reg-password').value;
+        const code = document.getElementById('reg-code').value;
+        if (!code || code.length !== 6) { showError('请输入6位验证码'); btn.disabled = false; btn.textContent = '注册'; return; }
         const res = await fetch(`${API_URL}/auth/register`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ name, email, password })
+          body: JSON.stringify({ name, email, password, code })
         });
         const data = await res.json();
         if (!res.ok) { showError(data.error || '注册失败'); return; }
