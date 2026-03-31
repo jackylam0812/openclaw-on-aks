@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import AppLayout from '@/components/layout/app-layout';
-import { Activity, DollarSign, Zap, TrendingUp, User, Cpu, AlertTriangle, Clock, Server } from 'lucide-react';
+import { Activity, DollarSign, Zap, TrendingUp, User, Cpu, AlertTriangle, Clock, Server, Users } from 'lucide-react';
 import { getLiteLLMUsage } from '@/lib/api';
 
 function formatTokens(n: number): string {
@@ -41,28 +41,51 @@ function BarChart({ data, maxValue, label, formatFn }: { data: { label: string; 
   );
 }
 
+const TIME_PERIODS = [
+  { label: '7 天', value: 7 },
+  { label: '14 天', value: 14 },
+  { label: '30 天', value: 30 },
+  { label: '90 天', value: 90 },
+  { label: '180 天', value: 180 },
+];
+
+interface UserStat {
+  user: string;
+  tokens: number;
+  promptTokens: number;
+  completionTokens: number;
+  cost: number;
+  requests: number;
+  avgLatencyMs: number;
+  totalLatencyMs: number;
+  errors: number;
+  successRate: number;
+}
+
 interface LiteLLMData {
   today: { tokens: number; promptTokens: number; completionTokens: number; cost: number; requests: number; avgLatencyMs: number; errors: number };
   month: { tokens: number; cost: number; requests: number };
-  total: { tokens: number; cost: number; requests: number };
+  total: { tokens: number; promptTokens: number; completionTokens: number; cost: number; requests: number; avgLatencyMs: number; errors: number; successRate: number };
   globalSpend: number;
+  days: number;
   byModel: { model: string; provider: string; tokens: number; promptTokens: number; completionTokens: number; cost: number; requests: number; avgLatencyMs: number; successRate: number; errors: number }[];
   byDay: { date: string; tokens: number; promptTokens: number; completionTokens: number; cost: number; requests: number; avgLatencyMs: number }[];
   byProvider: { provider: string; tokens: number; cost: number; requests: number }[];
+  byUser: UserStat[];
   recentErrors: { time: string; model: string; status: string; request_id: string }[];
-  recentLogs: { requestId: string; model: string; provider: string; promptTokens: number; completionTokens: number; totalTokens: number; cost: number; latencyMs: number; status: string; cacheHit: string; time: string }[];
+  recentLogs: { requestId: string; model: string; provider: string; promptTokens: number; completionTokens: number; totalTokens: number; cost: number; latencyMs: number; status: string; cacheHit: string; time: string; user: string }[];
   error?: string;
 }
 
 export default function UsagePage() {
   const [data, setData] = useState<LiteLLMData | null>(null);
   const [loading, setLoading] = useState(true);
-  const [limit, setLimit] = useState(500);
+  const [days, setDays] = useState(30);
 
   useEffect(() => {
     setLoading(true);
-    getLiteLLMUsage(limit).then(setData).catch(() => {}).finally(() => setLoading(false));
-  }, [limit]);
+    getLiteLLMUsage(days).then(setData).catch(() => {}).finally(() => setLoading(false));
+  }, [days]);
 
   if (loading || !data) {
     return <AppLayout><div className="flex items-center justify-center h-64"><div className="text-gray-500">Loading usage data from LiteLLM...</div></div></AppLayout>;
@@ -71,18 +94,18 @@ export default function UsagePage() {
     return <AppLayout><div className="bg-red-500/10 border border-red-500/20 rounded-xl p-6 text-red-400"><p className="font-medium">Failed to load LiteLLM data</p><p className="text-sm mt-1">{data.error}</p></div></AppLayout>;
   }
 
-  const successRate = data.today.requests > 0 ? Math.round(((data.today.requests - data.today.errors) / data.today.requests) * 10000) / 100 : 100;
+  const periodLabel = `${days} 天`;
   const summaryCards = [
-    { label: 'Today Requests', value: String(data.today.requests), sub: `${formatTokens(data.today.tokens)} tokens`, icon: Zap, gradient: 'from-blue-500 to-cyan-500' },
-    { label: 'Today Tokens', value: formatTokens(data.today.tokens), sub: `In: ${formatTokens(data.today.promptTokens)} / Out: ${formatTokens(data.today.completionTokens)}`, icon: Activity, gradient: 'from-cyan-500 to-teal-500' },
-    { label: 'Today Cost', value: formatCost(data.today.cost), sub: `Avg ${formatMs(data.today.avgLatencyMs)} latency`, icon: DollarSign, gradient: 'from-green-500 to-emerald-500' },
-    { label: 'Today Errors', value: String(data.today.errors), sub: `${successRate}% success rate`, icon: AlertTriangle, gradient: data.today.errors > 0 ? 'from-red-500 to-orange-500' : 'from-gray-500 to-gray-600' },
-    { label: 'Month Cost', value: formatCost(data.month.cost), sub: `${formatTokens(data.month.tokens)} tokens · ${data.month.requests} reqs`, icon: TrendingUp, gradient: 'from-purple-500 to-violet-500' },
-    { label: 'Global Spend', value: formatCost(data.globalSpend), sub: `${formatTokens(data.total.tokens)} tokens · ${data.total.requests} reqs`, icon: DollarSign, gradient: 'from-orange-500 to-amber-500' },
+    { label: `总请求数`, value: String(data.total.requests), sub: `${periodLabel}内`, icon: Zap, gradient: 'from-blue-500 to-cyan-500' },
+    { label: '总 Tokens', value: formatTokens(data.total.tokens), sub: `In: ${formatTokens(data.total.promptTokens)} / Out: ${formatTokens(data.total.completionTokens)}`, icon: Activity, gradient: 'from-cyan-500 to-teal-500' },
+    { label: '总费用', value: formatCost(data.total.cost), sub: `平均延迟 ${formatMs(data.total.avgLatencyMs)}`, icon: DollarSign, gradient: 'from-green-500 to-emerald-500' },
+    { label: '成功率', value: `${data.total.successRate}%`, sub: `${data.total.errors} 个错误`, icon: AlertTriangle, gradient: data.total.errors > 0 ? 'from-red-500 to-orange-500' : 'from-gray-500 to-gray-600' },
+    { label: '活跃用户', value: String(data.byUser.length), sub: `${periodLabel}内`, icon: Users, gradient: 'from-purple-500 to-violet-500' },
+    { label: '全局累计费用', value: formatCost(data.globalSpend), sub: 'LiteLLM 全局', icon: TrendingUp, gradient: 'from-orange-500 to-amber-500' },
   ];
-  const dailyTokenData = data.byDay.slice(-14).map(d => ({ label: d.date.slice(5), value: d.tokens }));
+  const dailyTokenData = data.byDay.map(d => ({ label: d.date.slice(5), value: d.tokens }));
   const dailyTokenMax = Math.max(...dailyTokenData.map(d => d.value), 1);
-  const dailyCostData = data.byDay.slice(-14).map(d => ({ label: d.date.slice(5), value: d.cost }));
+  const dailyCostData = data.byDay.map(d => ({ label: d.date.slice(5), value: d.cost }));
   const dailyCostMax = Math.max(...dailyCostData.map(d => d.value), 0.001);
 
   return (
@@ -92,12 +115,11 @@ export default function UsagePage() {
           <h1 className="text-xl font-semibold text-gray-100">Usage & Cost</h1>
           <p className="text-sm text-gray-500 mt-1">Real-time metrics from LiteLLM gateway</p>
         </div>
-        <select value={limit} onChange={e => setLimit(Number(e.target.value))} className="bg-white/[0.05] border border-white/[0.1] rounded-lg px-3 py-1.5 text-sm text-gray-300 focus:outline-none focus:ring-1 focus:ring-purple-500/50">
-          <option value={200}>Last 200 requests</option>
-          <option value={500}>Last 500 requests</option>
-          <option value={1000}>Last 1,000 requests</option>
-          <option value={2000}>Last 2,000 requests</option>
-        </select>
+        <div className="flex gap-1 bg-white/[0.05] border border-white/[0.1] rounded-lg p-1">
+          {TIME_PERIODS.map(p => (
+            <button key={p.value} onClick={() => setDays(p.value)} className={`px-3 py-1.5 text-sm rounded-md transition-all ${days === p.value ? 'bg-purple-600 text-white shadow-sm' : 'text-gray-400 hover:text-gray-200 hover:bg-white/[0.05]'}`}>{p.label}</button>
+          ))}
+        </div>
       </div>
 
       {/* Summary Cards */}
@@ -121,11 +143,45 @@ export default function UsagePage() {
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-8">
         <div className="bg-white/[0.03] border border-white/[0.06] rounded-xl p-5 backdrop-blur-sm">
           <div className="flex items-center gap-2 mb-4"><TrendingUp size={16} className="text-gray-400" /><h2 className="text-sm font-medium text-gray-300">Daily Token Usage</h2></div>
-          <BarChart data={dailyTokenData} maxValue={dailyTokenMax} label="Tokens per day" />
+          <BarChart data={dailyTokenData} maxValue={dailyTokenMax} label={`最近 ${periodLabel} Tokens 趋势`} />
         </div>
         <div className="bg-white/[0.03] border border-white/[0.06] rounded-xl p-5 backdrop-blur-sm">
           <div className="flex items-center gap-2 mb-4"><DollarSign size={16} className="text-gray-400" /><h2 className="text-sm font-medium text-gray-300">Daily Cost</h2></div>
-          <BarChart data={dailyCostData} maxValue={dailyCostMax} label="Cost per day (USD)" formatFn={formatCost} />
+          <BarChart data={dailyCostData} maxValue={dailyCostMax} label={`最近 ${periodLabel} 费用趋势 (USD)`} formatFn={formatCost} />
+        </div>
+      </div>
+
+      {/* User Stats */}
+      <div className="bg-white/[0.03] border border-white/[0.06] rounded-xl overflow-hidden backdrop-blur-sm mb-8">
+        <div className="px-4 py-3 border-b border-white/[0.06] flex items-center gap-2"><Users size={16} className="text-gray-400" /><h2 className="text-sm font-medium text-gray-300">用户用量统计 (By User)</h2></div>
+        <div className="overflow-x-auto">
+          <table className="w-full text-sm">
+            <thead><tr className="border-b border-white/[0.06]">
+              <th className="text-left px-4 py-2.5 text-gray-500 font-medium text-xs">用户</th>
+              <th className="text-right px-4 py-2.5 text-gray-500 font-medium text-xs">请求数</th>
+              <th className="text-right px-4 py-2.5 text-gray-500 font-medium text-xs">Prompt Tokens</th>
+              <th className="text-right px-4 py-2.5 text-gray-500 font-medium text-xs">Completion Tokens</th>
+              <th className="text-right px-4 py-2.5 text-gray-500 font-medium text-xs">Total Tokens</th>
+              <th className="text-right px-4 py-2.5 text-gray-500 font-medium text-xs">费用</th>
+              <th className="text-right px-4 py-2.5 text-gray-500 font-medium text-xs">平均延迟</th>
+              <th className="text-right px-4 py-2.5 text-gray-500 font-medium text-xs">成功率</th>
+            </tr></thead>
+            <tbody>
+              {data.byUser.length === 0 && <tr><td colSpan={8} className="px-4 py-6 text-center text-gray-600 text-sm">暂无用户数据</td></tr>}
+              {data.byUser.map(u => (
+                <tr key={u.user} className="border-b border-white/[0.04] last:border-0 hover:bg-white/[0.02]">
+                  <td className="px-4 py-2.5 text-gray-200 text-xs font-medium">{u.user || 'unknown'}</td>
+                  <td className="px-4 py-2.5 text-gray-300 text-right text-xs">{u.requests}</td>
+                  <td className="px-4 py-2.5 text-gray-300 text-right text-xs">{formatTokens(u.promptTokens)}</td>
+                  <td className="px-4 py-2.5 text-gray-300 text-right text-xs">{formatTokens(u.completionTokens)}</td>
+                  <td className="px-4 py-2.5 text-gray-200 text-right text-xs font-medium">{formatTokens(u.tokens)}</td>
+                  <td className="px-4 py-2.5 text-green-400 text-right text-xs">{formatCost(u.cost)}</td>
+                  <td className="px-4 py-2.5 text-gray-300 text-right text-xs">{formatMs(u.avgLatencyMs)}</td>
+                  <td className="px-4 py-2.5 text-right text-xs"><span className={u.successRate >= 99 ? 'text-green-400' : u.successRate >= 90 ? 'text-yellow-400' : 'text-red-400'}>{u.successRate}%</span></td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
         </div>
       </div>
 
@@ -189,6 +245,7 @@ export default function UsagePage() {
           <table className="w-full text-xs">
             <thead><tr className="border-b border-white/[0.06]">
               <th className="text-left px-3 py-2.5 text-gray-500 font-medium">Time</th>
+              <th className="text-left px-3 py-2.5 text-gray-500 font-medium">User</th>
               <th className="text-left px-3 py-2.5 text-gray-500 font-medium">Model</th>
               <th className="text-left px-3 py-2.5 text-gray-500 font-medium">Provider</th>
               <th className="text-right px-3 py-2.5 text-gray-500 font-medium">Prompt</th>
@@ -202,7 +259,8 @@ export default function UsagePage() {
             <tbody>
               {data.recentLogs.map(log => (
                 <tr key={log.requestId} className="border-b border-white/[0.04] last:border-0 hover:bg-white/[0.02]">
-                  <td className="px-3 py-2 text-gray-400 whitespace-nowrap">{new Date(log.time).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit', second: '2-digit' })}</td>
+                  <td className="px-3 py-2 text-gray-400 whitespace-nowrap">{new Date(log.time).toLocaleString('zh-CN', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' })}</td>
+                  <td className="px-3 py-2 text-gray-300 truncate max-w-[120px]" title={log.user}>{log.user || '—'}</td>
                   <td className="px-3 py-2 text-gray-200 font-mono">{log.model}</td>
                   <td className="px-3 py-2 text-gray-400 capitalize">{log.provider}</td>
                   <td className="px-3 py-2 text-gray-300 text-right">{log.promptTokens.toLocaleString()}</td>

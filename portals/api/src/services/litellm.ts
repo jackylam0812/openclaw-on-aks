@@ -40,9 +40,13 @@ export interface LiteLLMSpendLog {
   end_user: string;
 }
 
-/** Get recent spend logs from LiteLLM (real token data). */
-export async function getSpendLogs(limit = 50): Promise<LiteLLMSpendLog[]> {
-  return litellmFetch('/spend/logs', { limit: String(limit) });
+/** Get spend logs from LiteLLM, optionally filtered by date range. */
+export async function getSpendLogs(opts: { startDate?: string; endDate?: string; limit?: number } = {}): Promise<LiteLLMSpendLog[]> {
+  const query: Record<string, string> = {};
+  if (opts.startDate) query.start_date = opts.startDate;
+  if (opts.endDate) query.end_date = opts.endDate;
+  if (opts.limit) query.limit = String(opts.limit);
+  return litellmFetch('/spend/logs', query);
 }
 
 /** Get total global spend. */
@@ -64,11 +68,12 @@ export function aggregateSpendLogs(logs: LiteLLMSpendLog[]) {
 
   const today = { tokens: 0, promptTokens: 0, completionTokens: 0, cost: 0, requests: 0, totalLatencyMs: 0, errors: 0 };
   const month = { tokens: 0, cost: 0, requests: 0 };
-  const total = { tokens: 0, cost: 0, requests: 0 };
+  const total = { tokens: 0, promptTokens: 0, completionTokens: 0, cost: 0, requests: 0, totalLatencyMs: 0, errors: 0 };
 
   const byModel: Record<string, { model: string; provider: string; tokens: number; promptTokens: number; completionTokens: number; cost: number; requests: number; totalLatencyMs: number; errors: number }> = {};
   const byDay: Record<string, { date: string; tokens: number; promptTokens: number; completionTokens: number; cost: number; requests: number; totalLatencyMs: number }> = {};
   const byProvider: Record<string, { provider: string; tokens: number; cost: number; requests: number }> = {};
+  const byUser: Record<string, { user: string; tokens: number; promptTokens: number; completionTokens: number; cost: number; requests: number; totalLatencyMs: number; errors: number }> = {};
   const recentErrors: { time: string; model: string; status: string; request_id: string }[] = [];
 
   for (const log of logs) {
@@ -78,8 +83,12 @@ export function aggregateSpendLogs(logs: LiteLLMSpendLog[]) {
     const isError = log.status === 'failure' || log.status === 'error';
 
     total.tokens += log.total_tokens || 0;
+    total.promptTokens += log.prompt_tokens || 0;
+    total.completionTokens += log.completion_tokens || 0;
     total.cost += log.spend || 0;
     total.requests++;
+    total.totalLatencyMs += log.request_duration_ms || 0;
+    if (isError) total.errors++;
 
     if (inMonth) {
       month.tokens += log.total_tokens || 0;
@@ -136,12 +145,25 @@ export function aggregateSpendLogs(logs: LiteLLMSpendLog[]) {
     if (isError) {
       recentErrors.push({ time: log.startTime, model: modelKey, status: log.status, request_id: log.request_id });
     }
+
+    // By user
+    const userKey = log.end_user || log.user || 'unknown';
+    if (!byUser[userKey]) {
+      byUser[userKey] = { user: userKey, tokens: 0, promptTokens: 0, completionTokens: 0, cost: 0, requests: 0, totalLatencyMs: 0, errors: 0 };
+    }
+    byUser[userKey].tokens += log.total_tokens || 0;
+    byUser[userKey].promptTokens += log.prompt_tokens || 0;
+    byUser[userKey].completionTokens += log.completion_tokens || 0;
+    byUser[userKey].cost += log.spend || 0;
+    byUser[userKey].requests++;
+    byUser[userKey].totalLatencyMs += log.request_duration_ms || 0;
+    if (isError) byUser[userKey].errors++;
   }
 
   return {
     today: { ...today, avgLatencyMs: today.requests > 0 ? Math.round(today.totalLatencyMs / today.requests) : 0 },
     month,
-    total,
+    total: { ...total, avgLatencyMs: total.requests > 0 ? Math.round(total.totalLatencyMs / total.requests) : 0, successRate: total.requests > 0 ? Math.round(((total.requests - total.errors) / total.requests) * 10000) / 100 : 100 },
     byModel: Object.values(byModel).sort((a, b) => b.cost - a.cost).map(m => ({
       ...m,
       avgLatencyMs: m.requests > 0 ? Math.round(m.totalLatencyMs / m.requests) : 0,
@@ -152,6 +174,11 @@ export function aggregateSpendLogs(logs: LiteLLMSpendLog[]) {
       avgLatencyMs: d.requests > 0 ? Math.round(d.totalLatencyMs / d.requests) : 0,
     })),
     byProvider: Object.values(byProvider).sort((a, b) => b.cost - a.cost),
+    byUser: Object.values(byUser).sort((a, b) => b.cost - a.cost).map(u => ({
+      ...u,
+      avgLatencyMs: u.requests > 0 ? Math.round(u.totalLatencyMs / u.requests) : 0,
+      successRate: u.requests > 0 ? Math.round(((u.requests - u.errors) / u.requests) * 10000) / 100 : 100,
+    })),
     recentErrors: recentErrors.slice(0, 20),
   };
 }

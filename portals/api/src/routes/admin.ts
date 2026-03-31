@@ -543,18 +543,21 @@ export default async function adminRoutes(app: FastifyInstance) {
 
   // ── LiteLLM real usage data ────────────────────────────────────────
   app.get('/admin/usage/litellm', async (request) => {
-    const { limit } = request.query as { limit?: string };
-    const numLimit = Math.min(parseInt(limit || '500', 10) || 500, 2000);
+    const { days } = request.query as { days?: string };
+    const numDays = Math.min(parseInt(days || '30', 10) || 30, 365);
+    const startDate = new Date(Date.now() - numDays * 86400000).toISOString().slice(0, 10);
+    const endDate = new Date().toISOString().slice(0, 10);
     try {
       const [logs, globalSpend] = await Promise.all([
-        getSpendLogs(numLimit),
+        getSpendLogs({ startDate, endDate }),
         getGlobalSpend().catch(() => ({ spend: 0, max_budget: 0 })),
       ]);
       const agg = aggregateSpendLogs(logs);
       return {
         ...agg,
         globalSpend: globalSpend.spend,
-        recentLogs: logs.slice(0, 20).map(l => ({
+        days: numDays,
+        recentLogs: logs.slice(0, 30).map(l => ({
           requestId: l.request_id,
           model: l.model_group || l.model,
           provider: l.custom_llm_provider,
@@ -566,6 +569,7 @@ export default async function adminRoutes(app: FastifyInstance) {
           status: l.status,
           cacheHit: l.cache_hit,
           time: l.startTime,
+          user: l.end_user || l.user || '',
         })),
       };
     } catch (err: any) {
