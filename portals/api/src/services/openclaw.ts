@@ -22,9 +22,18 @@ const insertUsageLog = db.prepare(
 /**
  * Forward a chat message to the user's OpenClaw sandbox gateway.
  * The gateway exposes an OpenAI-compatible /v1/chat/completions endpoint.
+ * Sends full conversation history so the agent retains context across turns.
  * Records token usage and cost in api_usage_logs.
  */
 export async function forwardToOpenClaw(userId: string, message: string, conversationId: string): Promise<string> {
+  // Load conversation history so the agent has full context
+  const history = db.prepare(
+    'SELECT role, content FROM messages WHERE conversation_id = ? ORDER BY created_at ASC'
+  ).all(conversationId) as { role: string; content: string }[];
+  const messages = [
+    ...history.map(m => ({ role: m.role, content: m.content })),
+    { role: 'user' as const, content: message },
+  ];
   const sandbox = db.prepare('SELECT id, endpoint, status FROM sandboxes WHERE user_id = ?').get(userId) as any;
   if (!sandbox || !sandbox.endpoint) {
     return 'Your sandbox is not provisioned yet. Please wait for setup to complete.';
@@ -59,9 +68,7 @@ export async function forwardToOpenClaw(userId: string, message: string, convers
       },
       body: JSON.stringify({
         model: 'openclaw',
-        messages: [
-          { role: 'user', content: message },
-        ],
+        messages,
         max_completion_tokens: 8192,
       }),
     });
