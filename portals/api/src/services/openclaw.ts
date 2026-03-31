@@ -38,6 +38,10 @@ export async function forwardToOpenClaw(userId: string, message: string, convers
   if (!sandbox || !sandbox.endpoint) {
     return 'Your sandbox is not provisioned yet. Please wait for setup to complete.';
   }
+
+  // Resolve user email for LiteLLM user tracking
+  const userRow = db.prepare('SELECT email FROM users WHERE id = ?').get(userId) as { email: string } | undefined;
+  const userEmail = userRow?.email || userId;
   if (sandbox.status !== 'running') {
     return `Your sandbox is currently ${sandbox.status}. Please wait for it to be ready.`;
   }
@@ -70,6 +74,7 @@ export async function forwardToOpenClaw(userId: string, message: string, convers
         model: 'openclaw',
         messages,
         max_completion_tokens: 8192,
+        user: userEmail,
       }),
     });
 
