@@ -204,3 +204,8 @@ export async function getUsageRecent(limit: number = 50) {
   const res = await authFetch(`/admin/usage/recent?limit=${limit}`);
   return res.json();
 }
+
+export async function getLiteLLMUsage(limit: number = 500) {
+  const res = await authFetch(`/admin/usage/litellm?limit=${limit}`);
+  return res.json();
+}

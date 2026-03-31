@@ -5,6 +5,7 @@ import db from '../db/client.js';
 import { getNodes, getPods } from '../services/k8s.js';
 import { provisionSandbox, syncAllSandboxes, deleteSandbox, stopSandbox, startSandbox, restartSandbox, autoSleepIdleSandboxes, startAutoSleepTimer } from '../services/sandbox.js';
 import { listAzureVMs } from '../services/azure-vm.js';
+import { getSpendLogs, getGlobalSpend, aggregateSpendLogs } from '../services/litellm.js';
 import { v4 as uuid } from 'uuid';
 
 export default async function adminRoutes(app: FastifyInstance) {
@@ -538,5 +539,38 @@ export default async function adminRoutes(app: FastifyInstance) {
     ).all(numLimit);
 
     return rows;
+  });
+
+  // ── LiteLLM real usage data ────────────────────────────────────────
+  app.get('/admin/usage/litellm', async (request) => {
+    const { limit } = request.query as { limit?: string };
+    const numLimit = Math.min(parseInt(limit || '500', 10) || 500, 2000);
+    try {
+      const [logs, globalSpend] = await Promise.all([
+        getSpendLogs(numLimit),
+        getGlobalSpend().catch(() => ({ spend: 0, max_budget: 0 })),
+      ]);
+      const agg = aggregateSpendLogs(logs);
+      return {
+        ...agg,
+        globalSpend: globalSpend.spend,
+        recentLogs: logs.slice(0, 20).map(l => ({
+          requestId: l.request_id,
+          model: l.model_group || l.model,
+          provider: l.custom_llm_provider,
+          promptTokens: l.prompt_tokens,
+          completionTokens: l.completion_tokens,
+          totalTokens: l.total_tokens,
+          cost: l.spend,
+          latencyMs: l.request_duration_ms,
+          status: l.status,
+          cacheHit: l.cache_hit,
+          time: l.startTime,
+        })),
+      };
+    } catch (err: any) {
+      console.error('LiteLLM usage fetch failed:', err.message);
+      return { error: err.message };
+    }
   });
 }
