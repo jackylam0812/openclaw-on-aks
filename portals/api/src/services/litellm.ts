@@ -45,6 +45,22 @@ export async function getSpendLogs(limit = 2000): Promise<LiteLLMSpendLog[]> {
   return litellmFetch('/spend/logs', { limit: String(limit) });
 }
 
+/** Generate a per-user LiteLLM virtual key. user_id maps to spend log `user` field. */
+export async function generateUserKey(userId: string, userEmail: string): Promise<string> {
+  const res = await fetch(`${LITELLM_URL}/key/generate`, {
+    method: 'POST',
+    headers: { 'Authorization': `Bearer ${LITELLM_MASTER_KEY}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ user_id: userEmail, key_alias: `sandbox-${userId.slice(0, 8)}` }),
+    signal: AbortSignal.timeout(10000),
+  });
+  if (!res.ok) {
+    const text = await res.text();
+    throw new Error(`LiteLLM /key/generate failed: ${res.status} ${text.slice(0, 200)}`);
+  }
+  const data = await res.json() as { key: string };
+  return data.key;
+}
+
 /** Get total global spend. */
 export async function getGlobalSpend(): Promise<{ spend: number; max_budget: number }> {
   return litellmFetch('/global/spend');

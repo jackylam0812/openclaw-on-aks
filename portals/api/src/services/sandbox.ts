@@ -4,6 +4,7 @@ import { tmpdir } from 'os';
 import { join } from 'path';
 import db from '../db/client.js';
 import { provisionAzureVM, deleteAzureVM, deallocateAzureVM, startAzureVM } from './azure-vm.js';
+import { generateUserKey } from './litellm.js';
 
 const LITELLM_URL = process.env.OPENCLAW_API_URL || 'http://litellm.litellm.svc.cluster.local:4000';
 const LITELLM_API_KEY = process.env.LITELLM_API_KEY || 'sk-1234';
@@ -131,10 +132,11 @@ function buildOpenClawConfig(channels: ChannelConfig = {}) {
 /**
  * Build a Kubernetes Secret containing all sensitive values for a sandbox.
  */
-function buildSandboxSecret(sandboxName: string, namespace: string, channels: ChannelConfig = {}): object {
+function buildSandboxSecret(sandboxName: string, namespace: string, channels: ChannelConfig = {}, litellmKey?: string): object {
+  const apiKey = litellmKey || LITELLM_API_KEY;
   const secretData: Record<string, string> = {
-    OC_LITELLM_API_KEY: Buffer.from(LITELLM_API_KEY).toString('base64'),
-    OC_GATEWAY_TOKEN: Buffer.from(LITELLM_API_KEY).toString('base64'),
+    OC_LITELLM_API_KEY: Buffer.from(apiKey).toString('base64'),
+    OC_GATEWAY_TOKEN: Buffer.from(apiKey).toString('base64'),
   };
 
   if (channels.feishu) {
@@ -481,8 +483,17 @@ export async function provisionSandbox(userId: string, userEmail: string, runtim
   const channels = getUserChannels(userId);
 
   try {
+    // Generate per-user LiteLLM key for usage tracking
+    let userKey: string | undefined;
+    try {
+      userKey = await generateUserKey(userId, userEmail);
+      console.log(`Generated LiteLLM key for ${userEmail}`);
+    } catch (keyErr: any) {
+      console.warn(`Failed to generate LiteLLM key for ${userEmail}, using shared key:`, keyErr.message);
+    }
+
     // Apply Secret first, then Sandbox manifest
-    const secret = buildSandboxSecret(sandboxName, namespace, channels);
+    const secret = buildSandboxSecret(sandboxName, namespace, channels, userKey);
     applyManifest(secret, `${sandboxName}-secrets`);
 
     const manifest = buildSandboxManifest(sandboxName, namespace, userId, userEmail, channels, runtimeType);
@@ -535,8 +546,16 @@ export async function updateSandboxChannels(userId: string): Promise<void> {
   const channels = getUserChannels(userId);
 
   try {
+    // Generate per-user LiteLLM key
+    let userKey: string | undefined;
+    try {
+      userKey = await generateUserKey(userId, user.email);
+    } catch (keyErr: any) {
+      console.warn(`Failed to generate LiteLLM key for ${user.email}:`, keyErr.message);
+    }
+
     // Update Secret and Sandbox manifest
-    const secret = buildSandboxSecret(sandbox.pod_name, 'openclaw', channels);
+    const secret = buildSandboxSecret(sandbox.pod_name, 'openclaw', channels, userKey);
     applyManifest(secret, `${sandbox.pod_name}-secrets`);
 
     const manifest = buildSandboxManifest(sandbox.pod_name, 'openclaw', userId, user.email, channels, sandbox.runtime_type || 'kata');
@@ -571,8 +590,16 @@ export async function syncAllSandboxes(): Promise<{ success: number; failed: num
     try {
       const channels = getUserChannels(sb.user_id);
 
+      // Generate per-user LiteLLM key
+      let userKey: string | undefined;
+      try {
+        userKey = await generateUserKey(sb.user_id, sb.email);
+      } catch (keyErr: any) {
+        console.warn(`Failed to generate LiteLLM key for ${sb.email}, using shared key:`, keyErr.message);
+      }
+
       // Update Secret and Sandbox manifest
-      const secret = buildSandboxSecret(sb.pod_name, 'openclaw', channels);
+      const secret = buildSandboxSecret(sb.pod_name, 'openclaw', channels, userKey);
       applyManifest(secret, `${sb.pod_name}-secrets`);
 
       const manifest = buildSandboxManifest(sb.pod_name, 'openclaw', sb.user_id, sb.email, channels, sb.runtime_type || 'kata');
