@@ -33,6 +33,22 @@ export async function forwardToOpenClaw(userId: string, message: string, convers
     return `Your sandbox is currently ${sandbox.status}. Please wait for it to be ready.`;
   }
 
+  // Wait for sandbox gateway to be responsive (up to 30s after wake)
+  let gatewayReady = false;
+  for (let i = 0; i < 6; i++) {
+    try {
+      const healthCheck = await fetch(`${sandbox.endpoint}/v1/models`, {
+        headers: { 'Authorization': `Bearer ${GATEWAY_TOKEN}` },
+        signal: AbortSignal.timeout(5000),
+      });
+      if (healthCheck.ok) { gatewayReady = true; break; }
+    } catch {}
+    if (i < 5) await new Promise(r => setTimeout(r, 5000));
+  }
+  if (!gatewayReady) {
+    return "Your sandbox is still starting up. Please try again in a few seconds.";
+  }
+
   const startTime = Date.now();
   try {
     const response = await fetch(`${sandbox.endpoint}/v1/chat/completions`, {
@@ -42,7 +58,7 @@ export async function forwardToOpenClaw(userId: string, message: string, convers
         'Authorization': `Bearer ${GATEWAY_TOKEN}`,
       },
       body: JSON.stringify({
-        model: 'litellm/gpt-5.4',
+        model: 'openclaw',
         messages: [
           { role: 'user', content: message },
         ],
