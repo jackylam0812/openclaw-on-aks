@@ -56,6 +56,22 @@ CREATE TABLE IF NOT EXISTS settings (
   updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
 );
 
+CREATE TABLE IF NOT EXISTS api_usage_logs (
+  id TEXT PRIMARY KEY,
+  user_id TEXT REFERENCES users(id),
+  sandbox_id TEXT,
+  conversation_id TEXT,
+  model TEXT NOT NULL,
+  prompt_tokens INTEGER DEFAULT 0,
+  completion_tokens INTEGER DEFAULT 0,
+  total_tokens INTEGER DEFAULT 0,
+  cost_usd REAL DEFAULT 0,
+  latency_ms INTEGER DEFAULT 0,
+  status TEXT DEFAULT 'success',
+  source TEXT DEFAULT 'chat',
+  created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+
 CREATE TABLE IF NOT EXISTS sandboxes (
   id TEXT PRIMARY KEY,
   user_id TEXT UNIQUE REFERENCES users(id),
@@ -67,6 +83,8 @@ CREATE TABLE IF NOT EXISTS sandboxes (
   vm_resource_id TEXT,
   vm_name TEXT,
   vm_public_ip TEXT,
+  last_activity_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+  stopped_at DATETIME,
   created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
   ready_at DATETIME
 );

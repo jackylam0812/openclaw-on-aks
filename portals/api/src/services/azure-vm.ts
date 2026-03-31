@@ -266,6 +266,32 @@ export async function getAzureVMStatus(vmName: string): Promise<string> {
 }
 
 /**
+ * Deallocate (stop + release compute) an Azure VM. Disk is retained. No compute billing.
+ */
+export async function deallocateAzureVM(vmName: string): Promise<void> {
+  console.log(`Deallocating Azure VM ${vmName}...`);
+  azCmd(`vm deallocate --resource-group ${RESOURCE_GROUP} --name ${vmName} --no-wait`, 60000);
+}
+
+/**
+ * Start a previously deallocated Azure VM.
+ */
+export async function startAzureVM(vmName: string): Promise<string> {
+  console.log(`Starting Azure VM ${vmName}...`);
+  azCmd(`vm start --resource-group ${RESOURCE_GROUP} --name ${vmName}`, 180000);
+  // Retrieve the (possibly new) public IP
+  try {
+    const ip = azCmd(
+      `vm show --resource-group ${RESOURCE_GROUP} --name ${vmName} -d --query publicIps -o tsv`,
+      30000
+    ).trim();
+    return ip;
+  } catch {
+    return '';
+  }
+}
+
+/**
  * List all OpenClaw Azure VMs.
  */
 export async function listAzureVMs(): Promise<any[]> {

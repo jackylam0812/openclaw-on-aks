@@ -2,7 +2,8 @@
 
 import { useEffect, useState } from 'react';
 import AppLayout from '@/components/layout/app-layout';
-import { getUsers } from '@/lib/api';
+import { getUsers, stopSandbox, startSandbox, restartSandbox } from '@/lib/api';
+import { Play, Square, RotateCcw } from 'lucide-react';
 
 interface User {
   id: string;
@@ -15,10 +16,24 @@ interface User {
 
 export default function UsersPage() {
   const [users, setUsers] = useState<User[]>([]);
+  const [loading, setLoading] = useState<Record<string, boolean>>({});
 
-  useEffect(() => {
-    getUsers().then(setUsers).catch(() => {});
-  }, []);
+  const reload = () => getUsers().then(setUsers).catch(() => {});
+
+  useEffect(() => { reload(); }, []);
+
+  const handleAction = async (userId: string, action: 'stop' | 'start' | 'restart') => {
+    setLoading(l => ({ ...l, [userId]: true }));
+    try {
+      if (action === 'stop') await stopSandbox(userId);
+      else if (action === 'start') await startSandbox(userId);
+      else await restartSandbox(userId);
+      await new Promise(r => setTimeout(r, 1000));
+      await reload();
+    } catch {} finally {
+      setLoading(l => ({ ...l, [userId]: false }));
+    }
+  };
 
   return (
     <AppLayout>
@@ -35,58 +50,103 @@ export default function UsersPage() {
               <th className="text-left px-4 py-3 text-gray-500 font-medium">Email</th>
               <th className="text-left px-4 py-3 text-gray-500 font-medium">Role</th>
               <th className="text-left px-4 py-3 text-gray-500 font-medium">Sandbox</th>
+              <th className="text-left px-4 py-3 text-gray-500 font-medium">Actions</th>
               <th className="text-left px-4 py-3 text-gray-500 font-medium">Joined</th>
             </tr>
           </thead>
           <tbody>
             {users.length === 0 ? (
               <tr>
-                <td colSpan={5} className="px-4 py-8 text-center text-gray-600">
+                <td colSpan={6} className="px-4 py-8 text-center text-gray-600">
                   No users found
                 </td>
               </tr>
             ) : (
-              users.map((user) => (
-                <tr key={user.id} className="border-b border-white/[0.04] last:border-0">
-                  <td className="px-4 py-3 text-gray-200">{user.name}</td>
-                  <td className="px-4 py-3 text-gray-400">{user.email}</td>
-                  <td className="px-4 py-3">
-                    <span
-                      className={`text-xs px-2 py-0.5 rounded-full ${
-                        user.role === 'admin'
-                          ? 'bg-purple-500/10 text-purple-400'
-                          : 'bg-blue-500/10 text-blue-400'
-                      }`}
-                    >
-                      {user.role}
-                    </span>
-                  </td>
-                  <td className="px-4 py-3">
-                    {user.sandbox_status ? (
+              users.map((user) => {
+                const isLoading = loading[user.id];
+                const status = user.sandbox_status;
+                return (
+                  <tr key={user.id} className="border-b border-white/[0.04] last:border-0">
+                    <td className="px-4 py-3 text-gray-200">{user.name}</td>
+                    <td className="px-4 py-3 text-gray-400">{user.email}</td>
+                    <td className="px-4 py-3">
                       <span
                         className={`text-xs px-2 py-0.5 rounded-full ${
-                          user.sandbox_status === 'running'
-                            ? 'bg-green-500/10 text-green-400'
-                            : user.sandbox_status === 'creating'
-                              ? 'bg-blue-500/10 text-blue-400'
-                              : user.sandbox_status === 'provisioning'
-                                ? 'bg-purple-500/10 text-purple-400'
-                                : user.sandbox_status === 'failed'
-                                  ? 'bg-red-500/10 text-red-400'
-                                  : 'bg-gray-500/10 text-gray-400'
+                          user.role === 'admin'
+                            ? 'bg-purple-500/10 text-purple-400'
+                            : 'bg-blue-500/10 text-blue-400'
                         }`}
                       >
-                        {user.sandbox_status}
+                        {user.role}
                       </span>
-                    ) : (
-                      <span className="text-xs text-gray-600">—</span>
-                    )}
-                  </td>
-                  <td className="px-4 py-3 text-gray-500">
-                    {new Date(user.created_at).toLocaleDateString()}
-                  </td>
-                </tr>
-              ))
+                    </td>
+                    <td className="px-4 py-3">
+                      {status ? (
+                        <span
+                          className={`text-xs px-2 py-0.5 rounded-full ${
+                            status === 'running'
+                              ? 'bg-green-500/10 text-green-400'
+                              : status === 'stopped'
+                                ? 'bg-slate-500/10 text-slate-400'
+                                : status === 'starting'
+                                  ? 'bg-yellow-500/10 text-yellow-400'
+                                  : status === 'creating'
+                                    ? 'bg-blue-500/10 text-blue-400'
+                                    : status === 'provisioning'
+                                      ? 'bg-purple-500/10 text-purple-400'
+                                      : status === 'failed'
+                                        ? 'bg-red-500/10 text-red-400'
+                                        : 'bg-gray-500/10 text-gray-400'
+                          }`}
+                        >
+                          {status}
+                        </span>
+                      ) : (
+                        <span className="text-xs text-gray-600">&mdash;</span>
+                      )}
+                    </td>
+                    <td className="px-4 py-3">
+                      {status && user.role !== 'admin' && (
+                        <div className="flex gap-1">
+                          {status === 'running' && (
+                            <>
+                              <button
+                                onClick={() => handleAction(user.id, 'stop')}
+                                disabled={isLoading}
+                                title="Sleep"
+                                className="p-1 rounded hover:bg-white/[0.06] text-slate-400 hover:text-orange-400 transition-colors disabled:opacity-40"
+                              >
+                                <Square size={14} />
+                              </button>
+                              <button
+                                onClick={() => handleAction(user.id, 'restart')}
+                                disabled={isLoading}
+                                title="Restart"
+                                className="p-1 rounded hover:bg-white/[0.06] text-slate-400 hover:text-blue-400 transition-colors disabled:opacity-40"
+                              >
+                                <RotateCcw size={14} />
+                              </button>
+                            </>
+                          )}
+                          {status === 'stopped' && (
+                            <button
+                              onClick={() => handleAction(user.id, 'start')}
+                              disabled={isLoading}
+                              title="Wake up"
+                              className="p-1 rounded hover:bg-white/[0.06] text-slate-400 hover:text-green-400 transition-colors disabled:opacity-40"
+                            >
+                              <Play size={14} />
+                            </button>
+                          )}
+                        </div>
+                      )}
+                    </td>
+                    <td className="px-4 py-3 text-gray-500">
+                      {new Date(user.created_at).toLocaleDateString()}
+                    </td>
+                  </tr>
+                );
+              })
             )}
           </tbody>
         </table>

@@ -7,7 +7,7 @@ import integrationRoutes from './routes/integrations.js';
 import sandboxRoutes from './routes/sandbox.js';
 import webhookRoutes from './routes/webhooks.js';
 import db from './db/client.js';
-import { provisionSandbox } from './services/sandbox.js';
+import { provisionSandbox, startAutoSleepTimer } from './services/sandbox.js';
 
 const app = Fastify({ logger: true });
 
@@ -39,6 +39,9 @@ try {
       console.error(`Failed to auto-provision sandbox for ${row.email}:`, err);
     });
   }
+
+  // Start auto-sleep timer for idle sandboxes
+  startAutoSleepTimer();
 } catch (err) {
   app.log.error(err);
   process.exit(1);

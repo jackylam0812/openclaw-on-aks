@@ -3,7 +3,7 @@ import { execSync } from 'child_process';
 import { requireAdmin } from '../middleware/auth.js';
 import db from '../db/client.js';
 import { getNodes, getPods } from '../services/k8s.js';
-import { provisionSandbox, syncAllSandboxes, deleteSandbox } from '../services/sandbox.js';
+import { provisionSandbox, syncAllSandboxes, deleteSandbox, stopSandbox, startSandbox, restartSandbox, autoSleepIdleSandboxes, startAutoSleepTimer } from '../services/sandbox.js';
 import { listAzureVMs } from '../services/azure-vm.js';
 import { v4 as uuid } from 'uuid';
 
@@ -12,8 +12,12 @@ export default async function adminRoutes(app: FastifyInstance) {
 
   app.get('/admin/stats', async () => {
     const totalUsers = (db.prepare('SELECT COUNT(*) as count FROM users').get() as any).count;
-    const tokenUsageToday = Math.floor(Math.random() * 50000) + 10000; // placeholder
-    const activeModels = 1; // gpt-5.4
+    const today = new Date().toISOString().slice(0, 10); // YYYY-MM-DD
+    const tokenRow = db.prepare(
+      "SELECT COALESCE(SUM(total_tokens), 0) as tokens FROM api_usage_logs WHERE date(created_at) = ?"
+    ).get(today) as any;
+    const tokenUsageToday = tokenRow.tokens;
+    const activeModels = (db.prepare("SELECT COUNT(*) as count FROM models WHERE enabled = 1").get() as any).count || 1;
     const clusterUptime = '99.9%';
     return { totalUsers, clusterUptime, tokenUsageToday, activeModels };
   });
@@ -60,11 +64,13 @@ export default async function adminRoutes(app: FastifyInstance) {
     const runningPods = sandboxPods.filter((p: any) => p.status === 'Running');
     const totalUsers = (db.prepare('SELECT COUNT(*) as count FROM users').get() as any).count;
     const activeSandboxes = (db.prepare("SELECT COUNT(*) as count FROM sandboxes WHERE status IN ('running', 'creating')").get() as any).count;
+    const stoppedSandboxes = (db.prepare("SELECT COUNT(*) as count FROM sandboxes WHERE status = 'stopped'").get() as any).count;
     const vmSandboxes = (db.prepare("SELECT COUNT(*) as count FROM sandboxes WHERE runtime_type = 'azure-vm' AND status IN ('running', 'provisioning')").get() as any).count;
     const pendingApprovals = (db.prepare("SELECT COUNT(*) as count FROM users WHERE approval_status = 'pending' AND role != 'admin'").get() as any).count;
     return {
       totalUsers,
       activeSandboxes,
+      stoppedSandboxes,
       vmSandboxes,
       pendingApprovals,
       nodeCount: nodes.length,
@@ -182,6 +188,95 @@ export default async function adminRoutes(app: FastifyInstance) {
     });
 
     return { success: true, message: `Sandbox for ${user.email} switching to ${newRuntimeType} runtime` };
+  });
+
+  // --- Sandbox lifecycle: Stop / Start / Restart ---
+
+  app.post('/admin/sandboxes/:userId/stop', async (request, reply) => {
+    const { userId } = request.params as { userId: string };
+    const user = db.prepare('SELECT email FROM users WHERE id = ?').get(userId) as any;
+    if (!user) return reply.status(404).send({ error: 'User not found' });
+    const result = await stopSandbox(userId);
+    if (!result.success) return reply.status(400).send({ error: result.message });
+    return { success: true, message: `Sandbox for ${user.email} stopped` };
+  });
+
+  app.post('/admin/sandboxes/:userId/start', async (request, reply) => {
+    const { userId } = request.params as { userId: string };
+    const user = db.prepare('SELECT email FROM users WHERE id = ?').get(userId) as any;
+    if (!user) return reply.status(404).send({ error: 'User not found' });
+    const result = await startSandbox(userId);
+    if (!result.success) return reply.status(400).send({ error: result.message });
+    return { success: true, message: `Sandbox for ${user.email} starting` };
+  });
+
+  app.post('/admin/sandboxes/:userId/restart', async (request, reply) => {
+    const { userId } = request.params as { userId: string };
+    const user = db.prepare('SELECT email FROM users WHERE id = ?').get(userId) as any;
+    if (!user) return reply.status(404).send({ error: 'User not found' });
+    const result = await restartSandbox(userId);
+    if (!result.success) return reply.status(400).send({ error: result.message });
+    return { success: true, message: `Sandbox for ${user.email} restarting` };
+  });
+
+  // Get sandbox lifecycle settings
+  app.get('/admin/sandboxes/settings', async () => {
+    const getVal = (key: string, fallback: string) => {
+      const row = db.prepare('SELECT value FROM settings WHERE key = ?').get(key) as any;
+      return row?.value ?? fallback;
+    };
+    const idleMinutes = parseFloat(getVal('sandbox_idle_timeout_minutes', '10'));
+    const checkSeconds = parseFloat(getVal('sandbox_check_interval_seconds', '60'));
+    const autoSleepEnabled = getVal('sandbox_auto_sleep_enabled', 'true') === 'true';
+    const stoppedCount = (db.prepare("SELECT COUNT(*) as count FROM sandboxes WHERE status = 'stopped'").get() as any).count;
+    const runningCount = (db.prepare("SELECT COUNT(*) as count FROM sandboxes WHERE status = 'running'").get() as any).count;
+    return {
+      idleTimeoutMinutes: idleMinutes,
+      checkIntervalSeconds: checkSeconds,
+      autoSleepEnabled,
+      stoppedSandboxes: stoppedCount,
+      runningSandboxes: runningCount,
+    };
+  });
+
+  // Update sandbox lifecycle settings
+  app.put('/admin/sandboxes/settings', async (request, reply) => {
+    const { idleTimeoutMinutes, checkIntervalSeconds, autoSleepEnabled } = request.body as {
+      idleTimeoutMinutes?: number;
+      checkIntervalSeconds?: number;
+      autoSleepEnabled?: boolean;
+    };
+
+    const upsert = db.prepare(
+      "INSERT INTO settings (key, value, updated_at) VALUES (?, ?, CURRENT_TIMESTAMP) ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = CURRENT_TIMESTAMP"
+    );
+
+    if (idleTimeoutMinutes !== undefined) {
+      if (idleTimeoutMinutes < 1 || idleTimeoutMinutes > 1440) {
+        return reply.status(400).send({ error: 'idleTimeoutMinutes must be between 1 and 1440' });
+      }
+      upsert.run('sandbox_idle_timeout_minutes', String(idleTimeoutMinutes));
+    }
+    if (checkIntervalSeconds !== undefined) {
+      if (checkIntervalSeconds < 10 || checkIntervalSeconds > 3600) {
+        return reply.status(400).send({ error: 'checkIntervalSeconds must be between 10 and 3600' });
+      }
+      upsert.run('sandbox_check_interval_seconds', String(checkIntervalSeconds));
+    }
+    if (autoSleepEnabled !== undefined) {
+      upsert.run('sandbox_auto_sleep_enabled', autoSleepEnabled ? 'true' : 'false');
+    }
+
+    // Restart the auto-sleep timer with the new settings
+    startAutoSleepTimer();
+
+    return { success: true, message: 'Lifecycle settings updated and timer restarted' };
+  });
+
+  // Trigger manual auto-sleep check
+  app.post('/admin/sandboxes/auto-sleep', async () => {
+    const result = await autoSleepIdleSandboxes();
+    return { success: true, stopped: result.stopped };
   });
 
   // --- Delete user ---
@@ -336,5 +431,112 @@ export default async function adminRoutes(app: FastifyInstance) {
     }
     syncAllSandboxes().then(r => console.log(`Security sync done: ${r.success} success, ${r.failed} failed`)).catch(e => console.error('Security sync error:', e));
     return { success: true, message: 'Saved and sync started in background' };
+  });
+
+  // --- Usage & Cost Analytics ---
+
+  app.get('/admin/usage/stats', async () => {
+    const today = new Date().toISOString().slice(0, 10);
+    const thisMonth = today.slice(0, 7); // YYYY-MM
+
+    const todayRow = db.prepare(
+      "SELECT COALESCE(SUM(total_tokens), 0) as tokens, COALESCE(SUM(cost_usd), 0) as cost, COUNT(*) as requests, COALESCE(AVG(latency_ms), 0) as avg_latency FROM api_usage_logs WHERE date(created_at) = ?"
+    ).get(today) as any;
+
+    const monthRow = db.prepare(
+      "SELECT COALESCE(SUM(total_tokens), 0) as tokens, COALESCE(SUM(cost_usd), 0) as cost, COUNT(*) as requests FROM api_usage_logs WHERE strftime('%Y-%m', created_at) = ?"
+    ).get(thisMonth) as any;
+
+    const totalRow = db.prepare(
+      "SELECT COALESCE(SUM(total_tokens), 0) as tokens, COALESCE(SUM(cost_usd), 0) as cost, COUNT(*) as requests FROM api_usage_logs"
+    ).get() as any;
+
+    const errorCount = (db.prepare(
+      "SELECT COUNT(*) as count FROM api_usage_logs WHERE status = 'error' AND date(created_at) = ?"
+    ).get(today) as any).count;
+
+    return {
+      today: { tokens: todayRow.tokens, cost: Math.round(todayRow.cost * 10000) / 10000, requests: todayRow.requests, avgLatencyMs: Math.round(todayRow.avg_latency), errors: errorCount },
+      month: { tokens: monthRow.tokens, cost: Math.round(monthRow.cost * 10000) / 10000, requests: monthRow.requests },
+      total: { tokens: totalRow.tokens, cost: Math.round(totalRow.cost * 10000) / 10000, requests: totalRow.requests },
+    };
+  });
+
+  app.get('/admin/usage/daily', async (request) => {
+    const { days } = request.query as { days?: string };
+    const numDays = Math.min(parseInt(days || '30', 10) || 30, 90);
+
+    const rows = db.prepare(
+      `SELECT date(created_at) as date, SUM(total_tokens) as tokens, SUM(prompt_tokens) as prompt_tokens, SUM(completion_tokens) as completion_tokens, SUM(cost_usd) as cost, COUNT(*) as requests, AVG(latency_ms) as avg_latency
+       FROM api_usage_logs
+       WHERE created_at >= date('now', '-' || ? || ' days')
+       GROUP BY date(created_at) ORDER BY date ASC`
+    ).all(numDays);
+
+    return rows.map((r: any) => ({
+      date: r.date,
+      tokens: r.tokens || 0,
+      promptTokens: r.prompt_tokens || 0,
+      completionTokens: r.completion_tokens || 0,
+      cost: Math.round((r.cost || 0) * 10000) / 10000,
+      requests: r.requests || 0,
+      avgLatencyMs: Math.round(r.avg_latency || 0),
+    }));
+  });
+
+  app.get('/admin/usage/by-user', async (request) => {
+    const { days } = request.query as { days?: string };
+    const numDays = Math.min(parseInt(days || '30', 10) || 30, 90);
+
+    const rows = db.prepare(
+      `SELECT u.email, u.name, l.user_id, SUM(l.total_tokens) as tokens, SUM(l.cost_usd) as cost, COUNT(*) as requests
+       FROM api_usage_logs l JOIN users u ON l.user_id = u.id
+       WHERE l.created_at >= date('now', '-' || ? || ' days')
+       GROUP BY l.user_id ORDER BY tokens DESC`
+    ).all(numDays);
+
+    return rows.map((r: any) => ({
+      userId: r.user_id,
+      email: r.email,
+      name: r.name,
+      tokens: r.tokens || 0,
+      cost: Math.round((r.cost || 0) * 10000) / 10000,
+      requests: r.requests || 0,
+    }));
+  });
+
+  app.get('/admin/usage/by-model', async (request) => {
+    const { days } = request.query as { days?: string };
+    const numDays = Math.min(parseInt(days || '30', 10) || 30, 90);
+
+    const rows = db.prepare(
+      `SELECT model, SUM(total_tokens) as tokens, SUM(prompt_tokens) as prompt_tokens, SUM(completion_tokens) as completion_tokens, SUM(cost_usd) as cost, COUNT(*) as requests, AVG(latency_ms) as avg_latency
+       FROM api_usage_logs
+       WHERE created_at >= date('now', '-' || ? || ' days')
+       GROUP BY model ORDER BY tokens DESC`
+    ).all(numDays);
+
+    return rows.map((r: any) => ({
+      model: r.model,
+      tokens: r.tokens || 0,
+      promptTokens: r.prompt_tokens || 0,
+      completionTokens: r.completion_tokens || 0,
+      cost: Math.round((r.cost || 0) * 10000) / 10000,
+      requests: r.requests || 0,
+      avgLatencyMs: Math.round(r.avg_latency || 0),
+    }));
+  });
+
+  app.get('/admin/usage/recent', async (request) => {
+    const { limit } = request.query as { limit?: string };
+    const numLimit = Math.min(parseInt(limit || '50', 10) || 50, 200);
+
+    const rows = db.prepare(
+      `SELECT l.id, l.user_id, u.email, l.model, l.prompt_tokens, l.completion_tokens, l.total_tokens, l.cost_usd, l.latency_ms, l.status, l.source, l.created_at
+       FROM api_usage_logs l LEFT JOIN users u ON l.user_id = u.id
+       ORDER BY l.created_at DESC LIMIT ?`
+    ).all(numLimit);
+
+    return rows;
   });
 }

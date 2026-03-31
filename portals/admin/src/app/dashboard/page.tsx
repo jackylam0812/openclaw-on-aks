@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { Users, Server, Box, Cpu, ClipboardCheck, Monitor } from 'lucide-react';
+import { Users, Server, Box, Cpu, ClipboardCheck, Monitor, Moon } from 'lucide-react';
 import Link from 'next/link';
 import AppLayout from '@/components/layout/app-layout';
 import { getClusterOverview } from '@/lib/api';
@@ -9,6 +9,7 @@ import { getClusterOverview } from '@/lib/api';
 interface ClusterOverview {
   totalUsers: number;
   activeSandboxes: number;
+  stoppedSandboxes: number;
   vmSandboxes: number;
   nodeCount: number;
   totalPods: number;
@@ -20,6 +21,7 @@ interface ClusterOverview {
 const statCards = [
   { key: 'totalUsers', label: 'Total Users', icon: Users, gradient: 'from-blue-500 to-cyan-500' },
   { key: 'activeSandboxes', label: 'Active Sandboxes', icon: Box, gradient: 'from-green-500 to-emerald-500' },
+  { key: 'stoppedSandboxes', label: 'Sleeping', icon: Moon, gradient: 'from-slate-500 to-gray-500' },
   { key: 'vmSandboxes', label: 'Azure VMs', icon: Monitor, gradient: 'from-teal-500 to-green-500' },
   { key: 'nodeCount', label: 'Cluster Nodes', icon: Server, gradient: 'from-purple-500 to-violet-500' },
   { key: 'totalPods', label: 'Sandbox Pods', icon: Cpu, gradient: 'from-orange-500 to-amber-500' },

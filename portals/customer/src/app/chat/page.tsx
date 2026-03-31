@@ -101,6 +101,57 @@ export default function ChatPage() {
 
     try {
       const data = await sendMessage(message, activeConvId || undefined);
+
+      // If sandbox was sleeping and is now waking up, show waking status and auto-retry
+      if (data.waking) {
+        const wakingMsg: Message = {
+          id: (Date.now() + 1).toString(),
+          role: 'assistant',
+          content: data.reply,
+          created_at: new Date().toISOString(),
+        };
+        setMessages((prev) => [...prev, wakingMsg]);
+        setSandboxStatus('starting');
+
+        // Auto-retry after a delay
+        setTimeout(async () => {
+          setIsTyping(true);
+          try {
+            // Retry up to 5 times with 5s delay
+            for (let i = 0; i < 5; i++) {
+              await new Promise(r => setTimeout(r, 5000));
+              const retryData = await sendMessage(message, data.conversationId || activeConvId || undefined);
+              if (!retryData.waking) {
+                if (!activeConvId) {
+                  setActiveConvId(retryData.conversationId);
+                  loadConversations();
+                }
+                const aiMsg: Message = {
+                  id: (Date.now() + 2 + i).toString(),
+                  role: 'assistant',
+                  content: retryData.reply,
+                  created_at: new Date().toISOString(),
+                };
+                setMessages((prev) => [...prev, aiMsg]);
+                setSandboxStatus('running');
+                return;
+              }
+            }
+            // Still waking after retries
+            const retryFailMsg: Message = {
+              id: (Date.now() + 10).toString(),
+              role: 'assistant',
+              content: 'Your sandbox is still starting. Please try again in a moment.',
+              created_at: new Date().toISOString(),
+            };
+            setMessages((prev) => [...prev, retryFailMsg]);
+          } catch {} finally {
+            setIsTyping(false);
+          }
+        }, 3000);
+        return;
+      }
+
       if (!activeConvId) {
         setActiveConvId(data.conversationId);
         loadConversations();
@@ -158,12 +209,28 @@ export default function ChatPage() {
           <div className={`px-4 py-2 text-xs flex items-center gap-2 shrink-0 ${
             sandboxStatus === 'failed'
               ? 'bg-red-500/10 text-red-400 border-b border-red-500/20'
-              : 'bg-purple-500/10 text-purple-400 border-b border-purple-500/20'
+              : sandboxStatus === 'stopped'
+                ? 'bg-slate-500/10 text-slate-400 border-b border-slate-500/20'
+                : sandboxStatus === 'starting'
+                  ? 'bg-yellow-500/10 text-yellow-400 border-b border-yellow-500/20'
+                  : 'bg-purple-500/10 text-purple-400 border-b border-purple-500/20'
           }`}>
             {(sandboxStatus === 'provisioning' || sandboxStatus === 'creating') && (
               <>
                 <div className="w-3 h-3 border-2 border-purple-400 border-t-transparent rounded-full animate-spin" />
                 Setting up your environment...
+              </>
+            )}
+            {sandboxStatus === 'starting' && (
+              <>
+                <div className="w-3 h-3 border-2 border-yellow-400 border-t-transparent rounded-full animate-spin" />
+                Waking up your environment...
+              </>
+            )}
+            {sandboxStatus === 'stopped' && (
+              <>
+                <div className="w-2 h-2 rounded-full bg-slate-400" />
+                Your environment is sleeping (will wake on next message)
               </>
             )}
             {sandboxStatus === 'failed' && 'Environment setup failed'}

@@ -3,7 +3,7 @@ import { writeFileSync, unlinkSync } from 'fs';
 import { tmpdir } from 'os';
 import { join } from 'path';
 import db from '../db/client.js';
-import { provisionAzureVM, deleteAzureVM } from './azure-vm.js';
+import { provisionAzureVM, deleteAzureVM, deallocateAzureVM, startAzureVM } from './azure-vm.js';
 
 const LITELLM_URL = process.env.OPENCLAW_API_URL || 'http://litellm.litellm.svc.cluster.local:4000';
 const LITELLM_API_KEY = process.env.LITELLM_API_KEY || 'sk-1234';
@@ -643,4 +643,218 @@ export function getSandboxStatus(userId: string) {
   }
 
   return sandbox;
+}
+
+// ===== Sandbox Lifecycle: Stop / Start / Restart =====
+
+/**
+ * Read lifecycle settings from the database (settings table).
+ * Falls back to env vars, then defaults.
+ */
+function getLifecycleSettings(): { idleTimeoutMs: number; checkIntervalMs: number; autoSleepEnabled: boolean } {
+  const getVal = (key: string): string | undefined => {
+    const row = db.prepare('SELECT value FROM settings WHERE key = ?').get(key) as { value: string } | undefined;
+    return row?.value;
+  };
+  const dbIdleMin = getVal('sandbox_idle_timeout_minutes');
+  const dbCheckSec = getVal('sandbox_check_interval_seconds');
+  const dbEnabled = getVal('sandbox_auto_sleep_enabled');
+
+  const idleMinutes = dbIdleMin ? parseFloat(dbIdleMin) : (parseInt(process.env.SANDBOX_IDLE_TIMEOUT_MS || '600000', 10) / 60000);
+  const checkSeconds = dbCheckSec ? parseFloat(dbCheckSec) : (parseInt(process.env.SANDBOX_SLEEP_CHECK_INTERVAL_MS || '60000', 10) / 1000);
+  const autoSleepEnabled = dbEnabled !== undefined ? dbEnabled === 'true' : true;
+
+  return {
+    idleTimeoutMs: idleMinutes * 60000,
+    checkIntervalMs: checkSeconds * 1000,
+    autoSleepEnabled,
+  };
+}
+
+/**
+ * Update last_activity_at timestamp for a sandbox. Called on every chat interaction.
+ */
+export function touchSandboxActivity(userId: string): void {
+  db.prepare('UPDATE sandboxes SET last_activity_at = CURRENT_TIMESTAMP WHERE user_id = ?').run(userId);
+}
+
+/**
+ * Stop (sleep) a sandbox to save resources.
+ * - Kata/Standard: delete the pod (PVC data persists on azure-files-premium)
+ * - Azure VM: deallocate (no compute billing, disk retained)
+ */
+export async function stopSandbox(userId: string): Promise<{ success: boolean; message: string }> {
+  const sandbox = db.prepare('SELECT * FROM sandboxes WHERE user_id = ?').get(userId) as any;
+  if (!sandbox) return { success: false, message: 'Sandbox not found' };
+  if (sandbox.status === 'stopped') return { success: true, message: 'Already stopped' };
+
+  try {
+    if (sandbox.runtime_type === 'azure-vm' && sandbox.vm_name) {
+      await deallocateAzureVM(sandbox.vm_name);
+    } else if (sandbox.pod_name) {
+      // Delete pod via Sandbox CR scale or pod deletion — Sandbox CR + PVC persists
+      try {
+        execSync(`kubectl delete pod -n ${sandbox.namespace || 'openclaw'} -l sandbox=${sandbox.pod_name} --grace-period=10`, {
+          encoding: 'utf-8', timeout: 30000,
+        });
+      } catch {}
+      // Scale sandbox to 0 by patching the Sandbox CR replicas if supported,
+      // otherwise delete the Sandbox CR containers (pods die, PVC stays)
+      try {
+        execSync(`kubectl delete sandbox ${sandbox.pod_name} -n ${sandbox.namespace || 'openclaw'} --grace-period=10`, {
+          encoding: 'utf-8', timeout: 30000,
+        });
+      } catch {}
+    }
+
+    db.prepare('UPDATE sandboxes SET status = ?, stopped_at = CURRENT_TIMESTAMP WHERE user_id = ?')
+      .run('stopped', userId);
+    console.log(`Sandbox for user ${userId} stopped (sleeping)`);
+    return { success: true, message: 'Sandbox stopped' };
+  } catch (err: any) {
+    console.error(`Failed to stop sandbox for ${userId}:`, err.message);
+    return { success: false, message: err.message };
+  }
+}
+
+/**
+ * Start (wake) a previously stopped sandbox.
+ * - Kata/Standard: re-apply Sandbox manifest (PVC data still attached)
+ * - Azure VM: start the deallocated VM
+ */
+export async function startSandbox(userId: string): Promise<{ success: boolean; message: string }> {
+  const sandbox = db.prepare('SELECT * FROM sandboxes WHERE user_id = ?').get(userId) as any;
+  if (!sandbox) return { success: false, message: 'Sandbox not found' };
+  if (sandbox.status === 'running') return { success: true, message: 'Already running' };
+  if (sandbox.status !== 'stopped') return { success: false, message: `Cannot start sandbox in '${sandbox.status}' state` };
+
+  const user = db.prepare('SELECT email FROM users WHERE id = ?').get(userId) as any;
+  if (!user) return { success: false, message: 'User not found' };
+
+  try {
+    if (sandbox.runtime_type === 'azure-vm' && sandbox.vm_name) {
+      // Start deallocated VM
+      db.prepare('UPDATE sandboxes SET status = ? WHERE user_id = ?').run('starting', userId);
+      const newIp = await startAzureVM(sandbox.vm_name);
+      const endpoint = newIp ? `http://${newIp}:18789` : sandbox.endpoint;
+      db.prepare('UPDATE sandboxes SET status = ?, endpoint = ?, vm_public_ip = ?, last_activity_at = CURRENT_TIMESTAMP, stopped_at = NULL WHERE user_id = ?')
+        .run('running', endpoint, newIp || sandbox.vm_public_ip, userId);
+    } else {
+      // Re-provision K8s sandbox (PVC data persists via azure-files-premium RWX)
+      db.prepare('UPDATE sandboxes SET status = ? WHERE user_id = ?').run('starting', userId);
+      await provisionSandbox(userId, user.email, sandbox.runtime_type || 'kata');
+      db.prepare('UPDATE sandboxes SET last_activity_at = CURRENT_TIMESTAMP, stopped_at = NULL WHERE user_id = ?')
+        .run(userId);
+    }
+
+    console.log(`Sandbox for user ${userId} started (waking)`);
+    return { success: true, message: 'Sandbox starting' };
+  } catch (err: any) {
+    console.error(`Failed to start sandbox for ${userId}:`, err.message);
+    db.prepare('UPDATE sandboxes SET status = ? WHERE user_id = ?').run('stopped', userId);
+    return { success: false, message: err.message };
+  }
+}
+
+/**
+ * Restart a sandbox (stop then start).
+ */
+export async function restartSandbox(userId: string): Promise<{ success: boolean; message: string }> {
+  const sandbox = db.prepare('SELECT status FROM sandboxes WHERE user_id = ?').get(userId) as any;
+  if (!sandbox) return { success: false, message: 'Sandbox not found' };
+
+  if (sandbox.status === 'running') {
+    await stopSandbox(userId);
+    // Brief delay for cleanup
+    await new Promise(r => setTimeout(r, 2000));
+  }
+  return startSandbox(userId);
+}
+
+/**
+ * Auto-sleep check: find sandboxes idle beyond IDLE_TIMEOUT_MS and stop them.
+ * Called periodically by the auto-sleep timer.
+ */
+export async function autoSleepIdleSandboxes(): Promise<{ stopped: string[] }> {
+  const settings = getLifecycleSettings();
+  if (!settings.autoSleepEnabled) return { stopped: [] };
+  const idleMinutes = settings.idleTimeoutMs / 60000;
+  const idleSandboxes = db.prepare(
+    `SELECT s.user_id, s.pod_name, s.runtime_type, s.vm_name, u.email, s.last_activity_at
+     FROM sandboxes s JOIN users u ON s.user_id = u.id
+     WHERE s.status = 'running'
+       AND s.last_activity_at < datetime('now', '-${Math.floor(idleMinutes)} minutes')`
+  ).all() as { user_id: string; pod_name: string; runtime_type: string; vm_name: string; email: string; last_activity_at: string }[];
+
+  const stopped: string[] = [];
+  for (const sb of idleSandboxes) {
+    console.log(`Auto-sleeping sandbox for ${sb.email} (idle since ${sb.last_activity_at})`);
+    const result = await stopSandbox(sb.user_id);
+    if (result.success) stopped.push(sb.email);
+  }
+
+  if (stopped.length > 0) {
+    console.log(`Auto-sleep: stopped ${stopped.length} idle sandbox(es): ${stopped.join(', ')}`);
+  }
+  return { stopped };
+}
+
+/**
+ * Ensure a sandbox is awake before forwarding a request.
+ * Returns true if sandbox is ready, false if it needs time to start.
+ */
+export async function ensureSandboxAwake(userId: string): Promise<{ ready: boolean; message?: string }> {
+  const sandbox = db.prepare('SELECT status FROM sandboxes WHERE user_id = ?').get(userId) as any;
+  if (!sandbox) return { ready: false, message: 'No sandbox provisioned' };
+
+  if (sandbox.status === 'running') {
+    touchSandboxActivity(userId);
+    return { ready: true };
+  }
+
+  if (sandbox.status === 'stopped') {
+    // Wake the sandbox
+    const result = await startSandbox(userId);
+    if (!result.success) return { ready: false, message: result.message };
+    // For K8s pods, need to wait for pod to become ready
+    return { ready: false, message: 'Waking up your sandbox... please retry in a few seconds.' };
+  }
+
+  if (sandbox.status === 'starting' || sandbox.status === 'creating' || sandbox.status === 'provisioning') {
+    // Check if it's actually running now
+    const updated = getSandboxStatus(userId);
+    if (updated?.status === 'running') {
+      touchSandboxActivity(userId);
+      return { ready: true };
+    }
+    return { ready: false, message: 'Your sandbox is starting up... please wait a moment.' };
+  }
+
+  return { ready: false, message: `Sandbox is in '${sandbox.status}' state.` };
+}
+
+// ===== Auto-sleep timer =====
+let autoSleepInterval: ReturnType<typeof setInterval> | null = null;
+
+export function startAutoSleepTimer(): void {
+  if (autoSleepInterval) {
+    clearInterval(autoSleepInterval);
+    autoSleepInterval = null;
+  }
+  const settings = getLifecycleSettings();
+  if (!settings.autoSleepEnabled) {
+    console.log('Auto-sleep timer disabled via settings');
+    return;
+  }
+  console.log(`Auto-sleep timer started: checking every ${settings.checkIntervalMs / 1000}s, idle timeout ${settings.idleTimeoutMs / 60000} min`);
+  autoSleepInterval = setInterval(() => {
+    autoSleepIdleSandboxes().catch(err => console.error('Auto-sleep check error:', err));
+  }, settings.checkIntervalMs);
+}
+
+export function stopAutoSleepTimer(): void {
+  if (autoSleepInterval) {
+    clearInterval(autoSleepInterval);
+    autoSleepInterval = null;
+  }
 }

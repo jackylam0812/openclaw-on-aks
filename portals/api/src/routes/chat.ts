@@ -3,6 +3,7 @@ import { requireAuth } from '../middleware/auth.js';
 import { v4 as uuid } from 'uuid';
 import db from '../db/client.js';
 import { forwardToOpenClaw } from '../services/openclaw.js';
+import { ensureSandboxAwake } from '../services/sandbox.js';
 
 export default async function chatRoutes(app: FastifyInstance) {
   app.addHook('preHandler', requireAuth);
@@ -10,6 +11,12 @@ export default async function chatRoutes(app: FastifyInstance) {
   app.post('/chat/message', async (request: FastifyRequest) => {
     const user = (request as any).user;
     const { message, conversationId } = request.body as { message: string; conversationId?: string };
+
+    // Ensure sandbox is awake; wake it if sleeping
+    const wake = await ensureSandboxAwake(user.userId);
+    if (!wake.ready) {
+      return { reply: wake.message || 'Your sandbox is starting up...', conversationId: conversationId || null, waking: true };
+    }
 
     let convId = conversationId;
     if (!convId) {

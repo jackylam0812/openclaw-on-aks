@@ -110,6 +110,36 @@ export async function changeRuntimeType(userId: string, runtimeType: string) {
   return res.json();
 }
 
+export async function stopSandbox(userId: string) {
+  const res = await authFetch(`/admin/sandboxes/${userId}/stop`, { method: 'POST', body: '{}' });
+  return res.json();
+}
+
+export async function startSandbox(userId: string) {
+  const res = await authFetch(`/admin/sandboxes/${userId}/start`, { method: 'POST', body: '{}' });
+  return res.json();
+}
+
+export async function restartSandbox(userId: string) {
+  const res = await authFetch(`/admin/sandboxes/${userId}/restart`, { method: 'POST', body: '{}' });
+  return res.json();
+}
+
+export async function getSandboxSettings() {
+  const res = await authFetch('/admin/sandboxes/settings');
+  return res.json();
+}
+
+export async function updateSandboxSettings(settings: { idleTimeoutMinutes?: number; checkIntervalSeconds?: number; autoSleepEnabled?: boolean }) {
+  const res = await authFetch('/admin/sandboxes/settings', { method: 'PUT', body: JSON.stringify(settings) });
+  return res.json();
+}
+
+export async function triggerAutoSleep() {
+  const res = await authFetch('/admin/sandboxes/auto-sleep', { method: 'POST', body: '{}' });
+  return res.json();
+}
+
 export async function getModels() {
   const res = await authFetch('/admin/models');
   return res.json();
@@ -147,5 +177,30 @@ export async function updateSoulMd(content: string) {
 
 export async function syncSoulMd(content: string) {
   const res = await authFetch('/admin/security/sync', { method: 'POST', body: JSON.stringify({ content }) });
+  return res.json();
+}
+
+export async function getUsageStats() {
+  const res = await authFetch('/admin/usage/stats');
+  return res.json();
+}
+
+export async function getUsageDaily(days: number = 30) {
+  const res = await authFetch(`/admin/usage/daily?days=${days}`);
+  return res.json();
+}
+
+export async function getUsageByUser(days: number = 30) {
+  const res = await authFetch(`/admin/usage/by-user?days=${days}`);
+  return res.json();
+}
+
+export async function getUsageByModel(days: number = 30) {
+  const res = await authFetch(`/admin/usage/by-model?days=${days}`);
+  return res.json();
+}
+
+export async function getUsageRecent(limit: number = 50) {
+  const res = await authFetch(`/admin/usage/recent?limit=${limit}`);
   return res.json();
 }
