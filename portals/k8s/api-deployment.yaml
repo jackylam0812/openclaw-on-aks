@@ -49,6 +49,14 @@ spec:
                 secretKeyRef:
                   name: azure-sp-creds
                   key: AZURE_TENANT_ID
+            - name: ACS_CONNECTION_STRING
+              valueFrom:
+                secretKeyRef:
+                  name: acs-email-creds
+                  key: ACS_CONNECTION_STRING
+                  optional: true
+            - name: ACS_SENDER_ADDRESS
+              value: ACS_SENDER_ADDRESS_VALUE
           volumeMounts:
             - name: db-storage
               mountPath: /data

@@ -3,6 +3,7 @@ import bcrypt from 'bcryptjs';
 import { v4 as uuid } from 'uuid';
 import db from '../db/client.js';
 import { signToken, requireAuth } from '../middleware/auth.js';
+import { sendVerificationCode, verifyCode } from '../services/email.js';
 
 export default async function authRoutes(app: FastifyInstance) {
   app.post('/auth/login', async (request, reply) => {
@@ -18,10 +19,40 @@ export default async function authRoutes(app: FastifyInstance) {
     return { token, user: { id: user.id, email: user.email, name: user.name, role: user.role, approval_status: user.approval_status } };
   });
 
+  // Step 1: Send verification code to email
+  app.post('/auth/send-code', async (request, reply) => {
+    const { email } = request.body as { email: string };
+    if (!email) {
+      return reply.status(400).send({ error: 'Email is required' });
+    }
+    // Rate limit: max 1 code per email per 60 seconds
+    const recent = db.prepare(
+      "SELECT created_at FROM email_verification_codes WHERE email = ? AND created_at > datetime('now', '-1 minute')"
+    ).get(email);
+    if (recent) {
+      return reply.status(429).send({ error: 'Please wait 60 seconds before requesting another code' });
+    }
+    try {
+      await sendVerificationCode(email);
+      return { success: true, message: 'Verification code sent' };
+    } catch (err: any) {
+      console.error('Failed to send verification code:', err.message);
+      return reply.status(500).send({ error: 'Failed to send verification code. Please try again.' });
+    }
+  });
+
+  // Step 2: Register with verified code
   app.post('/auth/register', async (request, reply) => {
-    const { email, password, name } = request.body as { email: string; password: string; name: string };
+    const { email, password, name, code } = request.body as { email: string; password: string; name: string; code: string };
     if (!email || !password || !name) {
       return reply.status(400).send({ error: 'Email, password, and name required' });
+    }
+    if (!code) {
+      return reply.status(400).send({ error: 'Verification code is required' });
+    }
+    // Verify the code
+    if (!verifyCode(email, code)) {
+      return reply.status(400).send({ error: 'Invalid or expired verification code' });
     }
     const existing = db.prepare('SELECT id FROM users WHERE email = ?').get(email);
     if (existing) {

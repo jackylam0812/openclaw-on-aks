@@ -321,7 +321,7 @@ deploy_portals() {
   fi
 
   # Deploy portal-api initially (TLS cert and API_BASE_URL will be set after ingress IP is known)
-  sed "s|PORTAL_API_IMAGE|$PORTAL_API_IMAGE|g; s|JWT_SECRET_VALUE|$JWT_SECRET|g; s|LITELLM_API_KEY_VALUE|$LITELLM_KEY|g; s|LITELLM_MASTER_KEY_VALUE|$MASTER_KEY|g; s|API_BASE_URL_VALUE|http://localhost:3000|g" \
+  sed "s|PORTAL_API_IMAGE|$PORTAL_API_IMAGE|g; s|JWT_SECRET_VALUE|$JWT_SECRET|g; s|LITELLM_API_KEY_VALUE|$LITELLM_KEY|g; s|LITELLM_MASTER_KEY_VALUE|$MASTER_KEY|g; s|API_BASE_URL_VALUE|http://localhost:3000|g; s|ACS_SENDER_ADDRESS_VALUE|noreply@openclaw-azure.org|g" \
     portals/k8s/api-deployment.yaml | kubectl apply -f -
 
   sed "s|ADMIN_PORTAL_IMAGE|$ADMIN_IMAGE|g; s|PORTAL_API_URL|http://portal-api.portals.svc.cluster.local:3000|g" \
@@ -393,7 +393,7 @@ deploy_portals() {
 
   # Re-deploy portal-api with correct API_BASE_URL and TLS cert
   API_BASE="https://$INGRESS_IP/api"
-  sed "s|PORTAL_API_IMAGE|$PORTAL_API_IMAGE|g; s|JWT_SECRET_VALUE|$JWT_SECRET|g; s|LITELLM_API_KEY_VALUE|$LITELLM_KEY|g; s|LITELLM_MASTER_KEY_VALUE|$MASTER_KEY|g; s|API_BASE_URL_VALUE|$API_BASE|g" \
+  sed "s|PORTAL_API_IMAGE|$PORTAL_API_IMAGE|g; s|JWT_SECRET_VALUE|$JWT_SECRET|g; s|LITELLM_API_KEY_VALUE|$LITELLM_KEY|g; s|LITELLM_MASTER_KEY_VALUE|$MASTER_KEY|g; s|API_BASE_URL_VALUE|$API_BASE|g; s|ACS_SENDER_ADDRESS_VALUE|noreply@openclaw-azure.org|g" \
     portals/k8s/api-deployment.yaml | kubectl apply -f -
   kubectl rollout status deployment portal-api -n portals --timeout=120s
 

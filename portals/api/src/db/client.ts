@@ -95,6 +95,14 @@ try {
   db.exec("UPDATE sandboxes SET last_activity_at = CURRENT_TIMESTAMP WHERE last_activity_at IS NULL");
 } catch {}
 
+// Migration: create email_verification_codes table
+db.exec(`CREATE TABLE IF NOT EXISTS email_verification_codes (
+  email TEXT NOT NULL,
+  code TEXT NOT NULL,
+  expires_at DATETIME NOT NULL,
+  created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+)`);
+
 // Seed default model if models table is empty
 const modelCount = (db.prepare('SELECT COUNT(*) as count FROM models').get() as any).count;
 if (modelCount === 0) {

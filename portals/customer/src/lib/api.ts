@@ -45,11 +45,24 @@ export async function login(email: string, password: string) {
   return res.json();
 }
 
-export async function register(name: string, email: string, password: string) {
+export async function sendVerificationCode(email: string) {
+  const res = await fetch(`${API_URL}/auth/send-code`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ email }),
+  });
+  if (!res.ok) {
+    const data = await res.json();
+    throw new Error(data.error || 'Failed to send verification code');
+  }
+  return res.json();
+}
+
+export async function register(name: string, email: string, password: string, code: string) {
   const res = await fetch(`${API_URL}/auth/register`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ name, email, password }),
+    body: JSON.stringify({ name, email, password, code }),
   });
   if (!res.ok) {
     const data = await res.json();
