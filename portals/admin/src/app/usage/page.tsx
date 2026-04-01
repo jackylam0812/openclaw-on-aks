@@ -54,6 +54,7 @@ interface UserStat {
   tokens: number;
   promptTokens: number;
   completionTokens: number;
+  cachedTokens: number;
   cost: number;
   requests: number;
   avgLatencyMs: number;
@@ -227,6 +228,7 @@ export default function UsagePage() {
               <th className="text-left px-4 py-2.5 text-gray-500 font-medium text-xs">用户</th>
               <th className="text-right px-4 py-2.5 text-gray-500 font-medium text-xs">请求数</th>
               <th className="text-right px-4 py-2.5 text-gray-500 font-medium text-xs">Prompt Tokens</th>
+              <th className="text-right px-4 py-2.5 text-gray-500 font-medium text-xs">Cached Tokens</th>
               <th className="text-right px-4 py-2.5 text-gray-500 font-medium text-xs">Completion Tokens</th>
               <th className="text-right px-4 py-2.5 text-gray-500 font-medium text-xs">Total Tokens</th>
               <th className="text-right px-4 py-2.5 text-gray-500 font-medium text-xs">费用</th>
@@ -234,12 +236,13 @@ export default function UsagePage() {
               <th className="text-right px-4 py-2.5 text-gray-500 font-medium text-xs">成功率</th>
             </tr></thead>
             <tbody>
-              {data.byUser.length === 0 && <tr><td colSpan={8} className="px-4 py-6 text-center text-gray-600 text-sm">暂无用户数据</td></tr>}
+              {data.byUser.length === 0 && <tr><td colSpan={9} className="px-4 py-6 text-center text-gray-600 text-sm">暂无用户数据</td></tr>}
               {data.byUser.map(u => (
                 <tr key={u.user} className="border-b border-white/[0.04] last:border-0 hover:bg-white/[0.02]">
                   <td className="px-4 py-2.5 text-gray-200 text-xs font-medium">{u.user || 'unknown'}</td>
                   <td className="px-4 py-2.5 text-gray-300 text-right text-xs">{u.requests}</td>
                   <td className="px-4 py-2.5 text-gray-300 text-right text-xs">{formatTokens(u.promptTokens)}</td>
+                  <td className="px-4 py-2.5 text-right text-xs">{u.cachedTokens > 0 ? <span className="text-cyan-400">{formatTokens(u.cachedTokens)}</span> : <span className="text-gray-600">0</span>}</td>
                   <td className="px-4 py-2.5 text-gray-300 text-right text-xs">{formatTokens(u.completionTokens)}</td>
                   <td className="px-4 py-2.5 text-gray-200 text-right text-xs font-medium">{formatTokens(u.tokens)}</td>
                   <td className="px-4 py-2.5 text-green-400 text-right text-xs">{formatCost(u.cost)}</td>

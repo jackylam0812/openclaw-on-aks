@@ -1,5 +1,8 @@
 import db from '../db/client.js';
 
+const LITELLM_URL = process.env.OPENCLAW_API_URL || 'http://litellm.litellm.svc.cluster.local:4000';
+const LITELLM_MASTER_KEY = process.env.LITELLM_MASTER_KEY || '';
+
 /** 1000 credits = $10, so 100 credits per $1 */
 function getCreditsPerDollar(): number {
   const row = db.prepare("SELECT value FROM settings WHERE key = 'credits_per_dollar'").get() as { value: string } | undefined;
@@ -65,6 +68,46 @@ export function deductCredits(userId: string, costUsd: number): void {
   ensureCreditRecord(userId);
   const creditsUsed = costUsd * getCreditsPerDollar();
   db.prepare('UPDATE user_credits SET used_credits = used_credits + ?, updated_at = CURRENT_TIMESTAMP WHERE user_id = ?').run(creditsUsed, userId);
+}
+
+/**
+ * Sync a user's credit usage from LiteLLM spend logs.
+ * Queries LiteLLM for all recent spend logs, sums up the user's spend
+ * in the current billing cycle, then updates used_credits.
+ * LiteLLM has stream_options.include_usage configured so spend is accurate
+ * (includes Azure prompt caching discount automatically).
+ */
+export async function syncUserCreditsFromLiteLLM(userId: string): Promise<void> {
+  const userRow = db.prepare('SELECT email FROM users WHERE id = ?').get(userId) as { email: string } | undefined;
+  if (!userRow) return;
+
+  ensureCreditRecord(userId);
+  const cycle = currentBillingCycle(); // 'YYYY-MM'
+
+  try {
+    const res = await fetch(`${LITELLM_URL}/spend/logs?limit=2000`, {
+      headers: { 'Authorization': `Bearer ${LITELLM_MASTER_KEY}` },
+      signal: AbortSignal.timeout(10000),
+    });
+    if (!res.ok) return;
+
+    const logs = await res.json() as any[];
+    // Sum up adjusted spend for this user in current billing cycle
+    let totalSpend = 0;
+    for (const log of logs) {
+      const logMonth = log.startTime?.slice(0, 7);
+      if (logMonth !== cycle) continue;
+      if (log.user === userRow.email || log.end_user === userRow.email) {
+        totalSpend += log.spend || 0;
+      }
+    }
+
+    // Convert to credits and update (absolute set, not increment)
+    const creditsUsed = totalSpend * getCreditsPerDollar();
+    db.prepare('UPDATE user_credits SET used_credits = ?, updated_at = CURRENT_TIMESTAMP WHERE user_id = ?').run(creditsUsed, userId);
+  } catch (err: any) {
+    console.error('Failed to sync credits from LiteLLM:', err.message);
+  }
 }
 
 /** Admin: set monthly quota for a specific user. */

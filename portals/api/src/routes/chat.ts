@@ -4,7 +4,7 @@ import { v4 as uuid } from 'uuid';
 import db from '../db/client.js';
 import { forwardToOpenClaw } from '../services/openclaw.js';
 import { ensureSandboxAwake } from '../services/sandbox.js';
-import { checkCredits, deductCredits, getUserCredits } from '../services/credits.js';
+import { checkCredits, deductCredits, getUserCredits, syncUserCreditsFromLiteLLM } from '../services/credits.js';
 
 export default async function chatRoutes(app: FastifyInstance) {
   app.addHook('preHandler', requireAuth);
@@ -42,10 +42,9 @@ export default async function chatRoutes(app: FastifyInstance) {
     // Forward to user's OpenClaw sandbox gateway
     const result = await forwardToOpenClaw(user.userId, message, convId);
 
-    // Deduct credits based on actual cost
-    if (result.costUsd > 0) {
-      deductCredits(user.userId, result.costUsd);
-    }
+    // Sync credits from LiteLLM spend logs (OpenClaw gateway doesn't return token usage)
+    // Run async — don't block the response
+    syncUserCreditsFromLiteLLM(user.userId).catch(() => {});
 
     // Save assistant reply
     db.prepare('INSERT INTO messages (id, conversation_id, role, content) VALUES (?, ?, ?, ?)').run(
@@ -71,9 +70,10 @@ export default async function chatRoutes(app: FastifyInstance) {
     return messages;
   });
 
-  // User's own credit balance
+  // User's own credit balance (sync from LiteLLM first)
   app.get('/chat/credits', async (request: FastifyRequest) => {
     const user = (request as any).user;
+    await syncUserCreditsFromLiteLLM(user.userId).catch(() => {});
     return getUserCredits(user.userId);
   });
 }
