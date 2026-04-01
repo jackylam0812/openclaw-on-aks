@@ -124,6 +124,27 @@ if (!soulMdExists) {
   console.log('Seeded default SOUL.md content');
 }
 
+// Migration: create user_credits table
+db.exec(`CREATE TABLE IF NOT EXISTS user_credits (
+  user_id TEXT PRIMARY KEY REFERENCES users(id),
+  monthly_quota INTEGER DEFAULT 1000,
+  used_credits REAL DEFAULT 0,
+  billing_cycle TEXT,
+  updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+)`);
+
+// Seed default credit settings
+for (const setting of [
+  { key: 'default_monthly_credits', value: '1000' },
+  { key: 'credits_per_dollar', value: '100' },
+]) {
+  const exists = db.prepare('SELECT key FROM settings WHERE key = ?').get(setting.key);
+  if (!exists) {
+    db.prepare('INSERT INTO settings (key, value) VALUES (?, ?)').run(setting.key, setting.value);
+    console.log(`Seeded default setting: ${setting.key} = ${setting.value}`);
+  }
+}
+
 // Seed default sandbox lifecycle settings
 for (const setting of [
   { key: 'sandbox_idle_timeout_minutes', value: '10' },

@@ -72,6 +72,14 @@ CREATE TABLE IF NOT EXISTS api_usage_logs (
   created_at DATETIME DEFAULT CURRENT_TIMESTAMP
 );
 
+CREATE TABLE IF NOT EXISTS user_credits (
+  user_id TEXT PRIMARY KEY REFERENCES users(id),
+  monthly_quota INTEGER DEFAULT 1000,
+  used_credits REAL DEFAULT 0,
+  billing_cycle TEXT,
+  updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+
 CREATE TABLE IF NOT EXISTS sandboxes (
   id TEXT PRIMARY KEY,
   user_id TEXT UNIQUE REFERENCES users(id),

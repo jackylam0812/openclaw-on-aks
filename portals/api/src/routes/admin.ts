@@ -6,6 +6,7 @@ import { getNodes, getPods } from '../services/k8s.js';
 import { provisionSandbox, syncAllSandboxes, deleteSandbox, stopSandbox, startSandbox, restartSandbox, autoSleepIdleSandboxes, startAutoSleepTimer } from '../services/sandbox.js';
 import { listAzureVMs } from '../services/azure-vm.js';
 import { getSpendLogs, getGlobalSpend, aggregateSpendLogs } from '../services/litellm.js';
+import { getAllUserCredits, setUserQuota, resetUserCredits, getUserCredits } from '../services/credits.js';
 import { v4 as uuid } from 'uuid';
 
 export default async function adminRoutes(app: FastifyInstance) {
@@ -543,24 +544,34 @@ export default async function adminRoutes(app: FastifyInstance) {
 
   // ── LiteLLM real usage data ────────────────────────────────────────
   app.get('/admin/usage/litellm', async (request) => {
-    const { days } = request.query as { days?: string };
+    const { days, user } = request.query as { days?: string; user?: string };
     const numDays = Math.min(parseInt(days || '30', 10) || 30, 365);
     try {
-      const [logs, globalSpend] = await Promise.all([
+      const [allLogs, globalSpend] = await Promise.all([
         getSpendLogs(2000),
         getGlobalSpend().catch(() => ({ spend: 0, max_budget: 0 })),
       ]);
-      const agg = aggregateSpendLogs(logs, numDays);
+      // Always aggregate all logs first to get full user list
+      const fullAgg = aggregateSpendLogs(allLogs, numDays);
+      const allUsers = fullAgg.byUser.map(u => u.user);
+
+      // If user filter is specified, filter logs and re-aggregate
+      const filteredLogs = user ? allLogs.filter(l => (l.end_user || l.user || 'unknown') === user) : allLogs;
+      const agg = user ? aggregateSpendLogs(filteredLogs, numDays) : fullAgg;
+      const recentSource = user ? filteredLogs : allLogs;
+
       return {
         ...agg,
         globalSpend: globalSpend.spend,
         days: numDays,
-        recentLogs: logs.slice(0, 30).map(l => ({
+        allUsers,
+        recentLogs: recentSource.slice(0, 30).map(l => ({
           requestId: l.request_id,
           model: l.model_group || l.model,
           provider: l.custom_llm_provider,
           promptTokens: l.prompt_tokens,
           completionTokens: l.completion_tokens,
+          cachedTokens: l.cached_tokens || 0,
           totalTokens: l.total_tokens,
           cost: l.spend,
           latencyMs: l.request_duration_ms,
@@ -574,5 +585,43 @@ export default async function adminRoutes(app: FastifyInstance) {
       console.error('LiteLLM usage fetch failed:', err.message);
       return { error: err.message };
     }
+  });
+
+  // --- Credit Management ---
+
+  app.get('/admin/credits', async () => {
+    return getAllUserCredits();
+  });
+
+  app.get('/admin/credits/:userId', async (request, reply) => {
+    const { userId } = request.params as { userId: string };
+    const user = db.prepare('SELECT id FROM users WHERE id = ?').get(userId) as any;
+    if (!user) return reply.status(404).send({ error: 'User not found' });
+    return getUserCredits(userId);
+  });
+
+  app.patch('/admin/credits/:userId/quota', async (request, reply) => {
+    const { userId } = request.params as { userId: string };
+    const { quota } = request.body as { quota: number };
+    if (typeof quota !== 'number' || quota < 0) return reply.status(400).send({ error: 'Invalid quota value' });
+    const user = db.prepare('SELECT id FROM users WHERE id = ?').get(userId) as any;
+    if (!user) return reply.status(404).send({ error: 'User not found' });
+    setUserQuota(userId, quota);
+    return { success: true, ...getUserCredits(userId) };
+  });
+
+  app.post('/admin/credits/:userId/reset', async (request, reply) => {
+    const { userId } = request.params as { userId: string };
+    const user = db.prepare('SELECT id FROM users WHERE id = ?').get(userId) as any;
+    if (!user) return reply.status(404).send({ error: 'User not found' });
+    resetUserCredits(userId);
+    return { success: true, ...getUserCredits(userId) };
+  });
+
+  app.patch('/admin/credits/default-quota', async (request, reply) => {
+    const { quota } = request.body as { quota: number };
+    if (typeof quota !== 'number' || quota < 0) return reply.status(400).send({ error: 'Invalid quota value' });
+    db.prepare("UPDATE settings SET value = ?, updated_at = CURRENT_TIMESTAMP WHERE key = 'default_monthly_credits'").run(String(quota));
+    return { success: true, defaultQuota: quota };
   });
 }

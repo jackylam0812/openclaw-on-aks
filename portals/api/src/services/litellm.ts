@@ -27,6 +27,7 @@ export interface LiteLLMSpendLog {
   total_tokens: number;
   prompt_tokens: number;
   completion_tokens: number;
+  cached_tokens: number;
   startTime: string;
   endTime: string;
   request_duration_ms: number;
@@ -38,11 +39,16 @@ export interface LiteLLMSpendLog {
   cache_hit: string;
   user: string;
   end_user: string;
+  metadata?: any;
 }
 
 /** Get recent spend logs from LiteLLM (individual request entries). */
 export async function getSpendLogs(limit = 2000): Promise<LiteLLMSpendLog[]> {
-  return litellmFetch('/spend/logs', { limit: String(limit) });
+  const logs = await litellmFetch('/spend/logs', { limit: String(limit) }) as any[];
+  return logs.map(log => ({
+    ...log,
+    cached_tokens: log.metadata?.additional_usage_values?.prompt_tokens_details?.cached_tokens ?? 0,
+  }));
 }
 
 /** Generate a per-user LiteLLM virtual key. user_id maps to spend log `user` field. */
@@ -85,9 +91,9 @@ export function aggregateSpendLogs(allLogs: LiteLLMSpendLog[], days = 30) {
     return t >= cutoffMs;
   });
 
-  const today = { tokens: 0, promptTokens: 0, completionTokens: 0, cost: 0, requests: 0, totalLatencyMs: 0, errors: 0 };
+  const today = { tokens: 0, promptTokens: 0, completionTokens: 0, cachedTokens: 0, cost: 0, requests: 0, totalLatencyMs: 0, errors: 0 };
   const month = { tokens: 0, cost: 0, requests: 0 };
-  const total = { tokens: 0, promptTokens: 0, completionTokens: 0, cost: 0, requests: 0, totalLatencyMs: 0, errors: 0 };
+  const total = { tokens: 0, promptTokens: 0, completionTokens: 0, cachedTokens: 0, cost: 0, requests: 0, totalLatencyMs: 0, errors: 0 };
 
   const byModel: Record<string, { model: string; provider: string; tokens: number; promptTokens: number; completionTokens: number; cost: number; requests: number; totalLatencyMs: number; errors: number }> = {};
   const byDay: Record<string, { date: string; tokens: number; promptTokens: number; completionTokens: number; cost: number; requests: number; totalLatencyMs: number }> = {};
@@ -104,6 +110,7 @@ export function aggregateSpendLogs(allLogs: LiteLLMSpendLog[], days = 30) {
     total.tokens += log.total_tokens || 0;
     total.promptTokens += log.prompt_tokens || 0;
     total.completionTokens += log.completion_tokens || 0;
+    total.cachedTokens += log.cached_tokens || 0;
     total.cost += log.spend || 0;
     total.requests++;
     total.totalLatencyMs += log.request_duration_ms || 0;
@@ -119,6 +126,7 @@ export function aggregateSpendLogs(allLogs: LiteLLMSpendLog[], days = 30) {
       today.tokens += log.total_tokens || 0;
       today.promptTokens += log.prompt_tokens || 0;
       today.completionTokens += log.completion_tokens || 0;
+      today.cachedTokens += log.cached_tokens || 0;
       today.cost += log.spend || 0;
       today.requests++;
       today.totalLatencyMs += log.request_duration_ms || 0;

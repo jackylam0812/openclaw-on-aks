@@ -1,8 +1,8 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useMemo, useRef } from 'react';
 import AppLayout from '@/components/layout/app-layout';
-import { Activity, DollarSign, Zap, TrendingUp, User, Cpu, AlertTriangle, Clock, Server, Users } from 'lucide-react';
+import { Activity, DollarSign, Zap, TrendingUp, User, Cpu, AlertTriangle, Clock, Server, Users, ChevronDown, Search, X } from 'lucide-react';
 import { getLiteLLMUsage } from '@/lib/api';
 
 function formatTokens(n: number): string {
@@ -63,9 +63,9 @@ interface UserStat {
 }
 
 interface LiteLLMData {
-  today: { tokens: number; promptTokens: number; completionTokens: number; cost: number; requests: number; avgLatencyMs: number; errors: number };
+  today: { tokens: number; promptTokens: number; completionTokens: number; cachedTokens: number; cost: number; requests: number; avgLatencyMs: number; errors: number };
   month: { tokens: number; cost: number; requests: number };
-  total: { tokens: number; promptTokens: number; completionTokens: number; cost: number; requests: number; avgLatencyMs: number; errors: number; successRate: number };
+  total: { tokens: number; promptTokens: number; completionTokens: number; cachedTokens: number; cost: number; requests: number; avgLatencyMs: number; errors: number; successRate: number };
   globalSpend: number;
   days: number;
   byModel: { model: string; provider: string; tokens: number; promptTokens: number; completionTokens: number; cost: number; requests: number; avgLatencyMs: number; successRate: number; errors: number }[];
@@ -73,7 +73,8 @@ interface LiteLLMData {
   byProvider: { provider: string; tokens: number; cost: number; requests: number }[];
   byUser: UserStat[];
   recentErrors: { time: string; model: string; status: string; request_id: string }[];
-  recentLogs: { requestId: string; model: string; provider: string; promptTokens: number; completionTokens: number; totalTokens: number; cost: number; latencyMs: number; status: string; cacheHit: string; time: string; user: string }[];
+  recentLogs: { requestId: string; model: string; provider: string; promptTokens: number; completionTokens: number; cachedTokens: number; totalTokens: number; cost: number; latencyMs: number; status: string; cacheHit: string; time: string; user: string }[];
+  allUsers?: string[];
   error?: string;
 }
 
@@ -81,11 +82,31 @@ export default function UsagePage() {
   const [data, setData] = useState<LiteLLMData | null>(null);
   const [loading, setLoading] = useState(true);
   const [days, setDays] = useState(30);
+  const [selectedUser, setSelectedUser] = useState('');
+  const [searchQuery, setSearchQuery] = useState('');
+  const [dropdownOpen, setDropdownOpen] = useState(false);
+  const dropdownRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     setLoading(true);
-    getLiteLLMUsage(days).then(setData).catch(() => {}).finally(() => setLoading(false));
-  }, [days]);
+    getLiteLLMUsage(days, selectedUser || undefined).then(setData).catch(() => {}).finally(() => setLoading(false));
+  }, [days, selectedUser]);
+
+  // Close dropdown when clicking outside
+  useEffect(() => {
+    function handleClickOutside(e: MouseEvent) {
+      if (dropdownRef.current && !dropdownRef.current.contains(e.target as Node)) setDropdownOpen(false);
+    }
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
+
+  const filteredUsers = useMemo(() => {
+    if (!data?.allUsers) return [];
+    if (!searchQuery.trim()) return data.allUsers;
+    const q = searchQuery.toLowerCase();
+    return data.allUsers.filter(u => u.toLowerCase().includes(q));
+  }, [data?.allUsers, searchQuery]);
 
   if (loading || !data) {
     return <AppLayout><div className="flex items-center justify-center h-64"><div className="text-gray-500">Loading usage data from LiteLLM...</div></div></AppLayout>;
@@ -97,7 +118,7 @@ export default function UsagePage() {
   const periodLabel = `${days} 天`;
   const summaryCards = [
     { label: `总请求数`, value: String(data.total.requests), sub: `${periodLabel}内`, icon: Zap, gradient: 'from-blue-500 to-cyan-500' },
-    { label: '总 Tokens', value: formatTokens(data.total.tokens), sub: `In: ${formatTokens(data.total.promptTokens)} / Out: ${formatTokens(data.total.completionTokens)}`, icon: Activity, gradient: 'from-cyan-500 to-teal-500' },
+    { label: '总 Tokens', value: formatTokens(data.total.tokens), sub: `In: ${formatTokens(data.total.promptTokens)} / Cached: ${formatTokens(data.total.cachedTokens)} / Out: ${formatTokens(data.total.completionTokens)}`, icon: Activity, gradient: 'from-cyan-500 to-teal-500' },
     { label: '总费用', value: formatCost(data.total.cost), sub: `平均延迟 ${formatMs(data.total.avgLatencyMs)}`, icon: DollarSign, gradient: 'from-green-500 to-emerald-500' },
     { label: '成功率', value: `${data.total.successRate}%`, sub: `${data.total.errors} 个错误`, icon: AlertTriangle, gradient: data.total.errors > 0 ? 'from-red-500 to-orange-500' : 'from-gray-500 to-gray-600' },
     { label: '活跃用户', value: String(data.byUser.length), sub: `${periodLabel}内`, icon: Users, gradient: 'from-purple-500 to-violet-500' },
@@ -115,10 +136,56 @@ export default function UsagePage() {
           <h1 className="text-xl font-semibold text-gray-100">Usage & Cost</h1>
           <p className="text-sm text-gray-500 mt-1">Real-time metrics from LiteLLM gateway</p>
         </div>
-        <div className="flex gap-1 bg-white/[0.05] border border-white/[0.1] rounded-lg p-1">
-          {TIME_PERIODS.map(p => (
-            <button key={p.value} onClick={() => setDays(p.value)} className={`px-3 py-1.5 text-sm rounded-md transition-all ${days === p.value ? 'bg-purple-600 text-white shadow-sm' : 'text-gray-400 hover:text-gray-200 hover:bg-white/[0.05]'}`}>{p.label}</button>
-          ))}
+        <div className="flex items-center gap-3">
+          {/* User filter dropdown + search */}
+          <div className="relative" ref={dropdownRef}>
+            <button onClick={() => { setDropdownOpen(!dropdownOpen); setSearchQuery(''); }} className="flex items-center gap-2 px-3 py-1.5 text-sm bg-white/[0.05] border border-white/[0.1] rounded-lg hover:bg-white/[0.08] transition-all min-w-[160px]">
+              <Users size={14} className="text-gray-400 shrink-0" />
+              <span className={`truncate ${selectedUser ? 'text-gray-200' : 'text-gray-400'}`}>{selectedUser || '全部用户'}</span>
+              <ChevronDown size={14} className={`text-gray-400 shrink-0 transition-transform ${dropdownOpen ? 'rotate-180' : ''}`} />
+            </button>
+            {dropdownOpen && (
+              <div className="absolute right-0 top-full mt-1 w-72 bg-[#1a1a2e] border border-white/[0.1] rounded-xl shadow-2xl z-50 overflow-hidden">
+                {/* Search input */}
+                <div className="p-2 border-b border-white/[0.06]">
+                  <div className="relative">
+                    <Search size={14} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-gray-500" />
+                    <input type="text" value={searchQuery} onChange={e => setSearchQuery(e.target.value)} placeholder="搜索用户名或邮箱..." className="w-full pl-8 pr-8 py-1.5 text-sm bg-white/[0.05] border border-white/[0.08] rounded-lg text-gray-200 placeholder:text-gray-600 focus:outline-none focus:border-purple-500/50" autoFocus />
+                    {searchQuery && (
+                      <button onClick={() => setSearchQuery('')} className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-500 hover:text-gray-300"><X size={14} /></button>
+                    )}
+                  </div>
+                </div>
+                {/* Options */}
+                <div className="max-h-64 overflow-y-auto py-1">
+                  <button onClick={() => { setSelectedUser(''); setDropdownOpen(false); }} className={`w-full text-left px-3 py-2 text-sm hover:bg-white/[0.05] transition-colors flex items-center gap-2 ${!selectedUser ? 'text-purple-400 bg-purple-500/10' : 'text-gray-300'}`}>
+                    <Users size={13} className="shrink-0" />
+                    <span className="font-medium">全部用户（汇总）</span>
+                  </button>
+                  {filteredUsers.map(u => (
+                    <button key={u} onClick={() => { setSelectedUser(u); setDropdownOpen(false); }} className={`w-full text-left px-3 py-2 text-sm hover:bg-white/[0.05] transition-colors flex items-center gap-2 ${selectedUser === u ? 'text-purple-400 bg-purple-500/10' : 'text-gray-300'}`}>
+                      <User size={13} className="shrink-0" />
+                      <span className="truncate">{u}</span>
+                    </button>
+                  ))}
+                  {filteredUsers.length === 0 && searchQuery && (
+                    <p className="px-3 py-4 text-center text-gray-600 text-xs">未找到匹配用户</p>
+                  )}
+                </div>
+              </div>
+            )}
+          </div>
+          {/* Selected user badge */}
+          {selectedUser && (
+            <button onClick={() => setSelectedUser('')} className="flex items-center gap-1 px-2 py-1 text-xs bg-purple-500/20 text-purple-300 rounded-md hover:bg-purple-500/30 transition-colors" title="清除筛选">
+              <User size={12} /><span className="truncate max-w-[100px]">{selectedUser}</span><X size={12} />
+            </button>
+          )}
+          <div className="flex gap-1 bg-white/[0.05] border border-white/[0.1] rounded-lg p-1">
+            {TIME_PERIODS.map(p => (
+              <button key={p.value} onClick={() => setDays(p.value)} className={`px-3 py-1.5 text-sm rounded-md transition-all ${days === p.value ? 'bg-purple-600 text-white shadow-sm' : 'text-gray-400 hover:text-gray-200 hover:bg-white/[0.05]'}`}>{p.label}</button>
+            ))}
+          </div>
         </div>
       </div>
 
@@ -249,6 +316,7 @@ export default function UsagePage() {
               <th className="text-left px-3 py-2.5 text-gray-500 font-medium">Model</th>
               <th className="text-left px-3 py-2.5 text-gray-500 font-medium">Provider</th>
               <th className="text-right px-3 py-2.5 text-gray-500 font-medium">Prompt</th>
+              <th className="text-right px-3 py-2.5 text-gray-500 font-medium">Cached</th>
               <th className="text-right px-3 py-2.5 text-gray-500 font-medium">Completion</th>
               <th className="text-right px-3 py-2.5 text-gray-500 font-medium">Total</th>
               <th className="text-right px-3 py-2.5 text-gray-500 font-medium">Cost</th>
@@ -264,6 +332,7 @@ export default function UsagePage() {
                   <td className="px-3 py-2 text-gray-200 font-mono">{log.model}</td>
                   <td className="px-3 py-2 text-gray-400 capitalize">{log.provider}</td>
                   <td className="px-3 py-2 text-gray-300 text-right">{log.promptTokens.toLocaleString()}</td>
+                  <td className="px-3 py-2 text-right">{log.cachedTokens > 0 ? <span className="text-cyan-400">{log.cachedTokens.toLocaleString()}</span> : <span className="text-gray-600">0</span>}</td>
                   <td className="px-3 py-2 text-gray-300 text-right">{log.completionTokens.toLocaleString()}</td>
                   <td className="px-3 py-2 text-gray-200 text-right font-medium">{log.totalTokens.toLocaleString()}</td>
                   <td className="px-3 py-2 text-green-400 text-right">{formatCost(log.cost)}</td>

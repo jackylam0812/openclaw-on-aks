@@ -3,7 +3,7 @@
 import { useEffect, useState, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import { MessageSquare } from 'lucide-react';
-import { getToken, getChatHistory, getConversationMessages, sendMessage, getSandboxStatus, getIntegrations, getMe } from '@/lib/api';
+import { getToken, getChatHistory, getConversationMessages, sendMessage, getSandboxStatus, getIntegrations, getMe, getCredits } from '@/lib/api';
 import MessageBubble from '@/components/chat/message-bubble';
 import InputBar from '@/components/chat/input-bar';
 import TypingIndicator from '@/components/chat/typing-indicator';
@@ -32,6 +32,7 @@ export default function ChatPage() {
   const [isTyping, setIsTyping] = useState(false);
   const [sandboxStatus, setSandboxStatus] = useState<string>('none');
   const [channels, setChannels] = useState<{ id: string; type: string; status: string }[]>([]);
+  const [credits, setCredits] = useState<{ monthlyQuota: number; usedCredits: number; remainingCredits: number; usagePercent: number } | null>(null);
 
   useEffect(() => {
     if (!getToken()) {
@@ -46,6 +47,7 @@ export default function ChatPage() {
       loadConversations();
       loadSandboxStatus();
       loadChannels();
+      loadCredits();
     }).catch(() => {
       router.push('/login');
     });
@@ -62,6 +64,13 @@ export default function ChatPage() {
     try {
       const data = await getIntegrations();
       setChannels(data);
+    } catch {}
+  };
+
+  const loadCredits = async () => {
+    try {
+      const data = await getCredits();
+      setCredits(data);
     } catch {}
   };
 
@@ -101,6 +110,19 @@ export default function ChatPage() {
 
     try {
       const data = await sendMessage(message, activeConvId || undefined);
+
+      // Credit exhausted
+      if (data.creditExhausted) {
+        const creditMsg: Message = {
+          id: (Date.now() + 1).toString(),
+          role: 'assistant',
+          content: data.reply,
+          created_at: new Date().toISOString(),
+        };
+        setMessages((prev) => [...prev, creditMsg]);
+        loadCredits();
+        return;
+      }
 
       // If sandbox was sleeping and is now waking up, show waking status and auto-retry
       if (data.waking) {
@@ -163,6 +185,7 @@ export default function ChatPage() {
         created_at: new Date().toISOString(),
       };
       setMessages((prev) => [...prev, aiMsg]);
+      loadCredits();
     } catch {
       const errMsg: Message = {
         id: (Date.now() + 1).toString(),
@@ -189,6 +212,7 @@ export default function ChatPage() {
         onNewChat={handleNewChat}
         userName={userName}
         channels={channels}
+        credits={credits}
       />
 
       {/* Main Chat Area */}

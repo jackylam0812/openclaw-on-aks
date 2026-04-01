@@ -118,3 +118,8 @@ export async function getMe() {
   const res = await authFetch('/auth/me');
   return res.json();
 }
+
+export async function getCredits() {
+  const res = await authFetch('/chat/credits');
+  return res.json();
+}

@@ -19,13 +19,18 @@ const insertUsageLog = db.prepare(
   `INSERT INTO api_usage_logs (id, user_id, sandbox_id, conversation_id, model, prompt_tokens, completion_tokens, total_tokens, cost_usd, latency_ms, status, source) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
 );
 
+export interface OpenClawResult {
+  reply: string;
+  costUsd: number;
+}
+
 /**
  * Forward a chat message to the user's OpenClaw sandbox gateway.
  * The gateway exposes an OpenAI-compatible /v1/chat/completions endpoint.
  * Sends full conversation history so the agent retains context across turns.
  * Records token usage and cost in api_usage_logs.
  */
-export async function forwardToOpenClaw(userId: string, message: string, conversationId: string): Promise<string> {
+export async function forwardToOpenClaw(userId: string, message: string, conversationId: string): Promise<OpenClawResult> {
   // Load conversation history so the agent has full context
   const history = db.prepare(
     'SELECT role, content FROM messages WHERE conversation_id = ? ORDER BY created_at ASC'
@@ -36,22 +41,21 @@ export async function forwardToOpenClaw(userId: string, message: string, convers
   ];
   const sandbox = db.prepare('SELECT id, endpoint, status FROM sandboxes WHERE user_id = ?').get(userId) as any;
   if (!sandbox || !sandbox.endpoint) {
-    return 'Your sandbox is not provisioned yet. Please wait for setup to complete.';
+    return { reply: 'Your sandbox is not provisioned yet. Please wait for setup to complete.', costUsd: 0 };
   }
 
   // Resolve user email for LiteLLM user tracking
   const userRow = db.prepare('SELECT email FROM users WHERE id = ?').get(userId) as { email: string } | undefined;
   const userEmail = userRow?.email || userId;
   if (sandbox.status !== 'running') {
-    return `Your sandbox is currently ${sandbox.status}. Please wait for it to be ready.`;
+    return { reply: `Your sandbox is currently ${sandbox.status}. Please wait for it to be ready.`, costUsd: 0 };
   }
 
   // Wait for sandbox gateway to be responsive (up to 30s after wake)
   let gatewayReady = false;
   for (let i = 0; i < 6; i++) {
     try {
-      const healthCheck = await fetch(`${sandbox.endpoint}/v1/models`, {
-        headers: { 'Authorization': `Bearer ${GATEWAY_TOKEN}` },
+      const healthCheck = await fetch(`${sandbox.endpoint}/health`, {
         signal: AbortSignal.timeout(5000),
       });
       if (healthCheck.ok) { gatewayReady = true; break; }
@@ -59,7 +63,7 @@ export async function forwardToOpenClaw(userId: string, message: string, convers
     if (i < 5) await new Promise(r => setTimeout(r, 5000));
   }
   if (!gatewayReady) {
-    return "Your sandbox is still starting up. Please try again in a few seconds.";
+    return { reply: "Your sandbox is still starting up. Please try again in a few seconds.", costUsd: 0 };
   }
 
   const startTime = Date.now();
@@ -69,6 +73,7 @@ export async function forwardToOpenClaw(userId: string, message: string, convers
       headers: {
         'Content-Type': 'application/json',
         'Authorization': `Bearer ${GATEWAY_TOKEN}`,
+        'x-openclaw-scopes': 'operator.write',
       },
       body: JSON.stringify({
         model: 'openclaw',
@@ -85,7 +90,7 @@ export async function forwardToOpenClaw(userId: string, message: string, convers
       console.error('OpenClaw gateway error:', response.status, text);
       // Log failed request
       insertUsageLog.run(uuid(), userId, sandbox.id, conversationId, 'gpt-5.4', 0, 0, 0, 0, latencyMs, 'error', 'chat');
-      return `I'm having trouble connecting to the AI service. (Status: ${response.status})`;
+      return { reply: `I'm having trouble connecting to the AI service. (Status: ${response.status})`, costUsd: 0 };
     }
 
     const data = await response.json() as any;
@@ -101,12 +106,12 @@ export async function forwardToOpenClaw(userId: string, message: string, convers
     // Record usage log
     insertUsageLog.run(uuid(), userId, sandbox.id, conversationId, model, promptTokens, completionTokens, totalTokens, costUsd, latencyMs, 'success', 'chat');
 
-    return data.choices?.[0]?.message?.content || 'No response from AI.';
+    return { reply: data.choices?.[0]?.message?.content || 'No response from AI.', costUsd };
   } catch (error: any) {
     const latencyMs = Date.now() - startTime;
     console.error('OpenClaw gateway error:', error.message);
     // Log failed request
     insertUsageLog.run(uuid(), userId, sandbox.id, conversationId, 'gpt-5.4', 0, 0, 0, 0, latencyMs, 'error', 'chat');
-    return "I'm currently unable to reach the AI service. Please try again later.";
+    return { reply: "I'm currently unable to reach the AI service. Please try again later.", costUsd: 0 };
   }
 }

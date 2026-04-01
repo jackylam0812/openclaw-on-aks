@@ -1,7 +1,7 @@
 'use client';
 
 import { usePathname, useRouter } from 'next/navigation';
-import { Plus, LogOut, MessageSquare, Plug, Bird, Send, MessageCircle } from 'lucide-react';
+import { Plus, LogOut, MessageSquare, Plug, Bird, Send, MessageCircle, Coins } from 'lucide-react';
 import { clearToken } from '@/lib/api';
 
 interface Conversation {
@@ -16,6 +16,13 @@ interface ConnectedChannel {
   status: string;
 }
 
+interface CreditInfo {
+  monthlyQuota: number;
+  usedCredits: number;
+  remainingCredits: number;
+  usagePercent: number;
+}
+
 interface SidebarProps {
   conversations: Conversation[];
   activeConvId: string | null;
@@ -23,6 +30,7 @@ interface SidebarProps {
   onNewChat: () => void;
   userName: string;
   channels?: ConnectedChannel[];
+  credits?: CreditInfo | null;
 }
 
 const channelMeta: Record<string, { label: string; Icon: typeof Bird; color: string }> = {
@@ -38,6 +46,7 @@ export default function Sidebar({
   onNewChat,
   userName,
   channels = [],
+  credits,
 }: SidebarProps) {
   const router = useRouter();
   const pathname = usePathname();
@@ -139,6 +148,29 @@ export default function Sidebar({
           </button>
         </div>
       </div>
+
+      {/* Credits */}
+      {credits && (
+        <div className="px-3 py-3 border-t border-white/[0.06]">
+          <div className="flex items-center gap-2 mb-2">
+            <Coins size={14} className="text-amber-400" />
+            <span className="text-xs text-gray-400">本月额度</span>
+          </div>
+          <div className="flex items-baseline justify-between mb-1.5">
+            <span className={`text-lg font-semibold ${credits.remainingCredits <= 0 ? 'text-red-400' : credits.usagePercent >= 80 ? 'text-amber-400' : 'text-gray-100'}`}>
+              {Math.round(credits.remainingCredits)}
+            </span>
+            <span className="text-[11px] text-gray-500">/ {credits.monthlyQuota} credits</span>
+          </div>
+          <div className="w-full h-1.5 bg-white/[0.06] rounded-full overflow-hidden">
+            <div
+              className={`h-full rounded-full transition-all ${credits.usagePercent >= 90 ? 'bg-red-500' : credits.usagePercent >= 70 ? 'bg-amber-500' : 'bg-gradient-to-r from-purple-500 to-blue-500'}`}
+              style={{ width: `${Math.min(credits.usagePercent, 100)}%` }}
+            />
+          </div>
+          <p className="text-[10px] text-gray-600 mt-1">已用 {Math.round(credits.usedCredits)} credits ({credits.usagePercent}%)</p>
+        </div>
+      )}
 
       {/* User Info */}
       <div className="p-3 border-t border-white/[0.06]">

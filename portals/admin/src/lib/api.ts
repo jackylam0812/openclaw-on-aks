@@ -205,7 +205,29 @@ export async function getUsageRecent(limit: number = 50) {
   return res.json();
 }
 
-export async function getLiteLLMUsage(days: number = 30) {
-  const res = await authFetch(`/admin/usage/litellm?days=${days}`);
+export async function getLiteLLMUsage(days: number = 30, user?: string) {
+  const params = new URLSearchParams({ days: String(days) });
+  if (user) params.set('user', user);
+  const res = await authFetch(`/admin/usage/litellm?${params}`);
+  return res.json();
+}
+
+export async function getAllCredits() {
+  const res = await authFetch('/admin/credits');
+  return res.json();
+}
+
+export async function setUserQuota(userId: string, quota: number) {
+  const res = await authFetch(`/admin/credits/${userId}/quota`, {
+    method: 'PATCH',
+    body: JSON.stringify({ quota }),
+  });
+  return res.json();
+}
+
+export async function resetUserCredits(userId: string) {
+  const res = await authFetch(`/admin/credits/${userId}/reset`, {
+    method: 'POST',
+  });
   return res.json();
 }

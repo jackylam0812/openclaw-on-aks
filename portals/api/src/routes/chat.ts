@@ -4,6 +4,7 @@ import { v4 as uuid } from 'uuid';
 import db from '../db/client.js';
 import { forwardToOpenClaw } from '../services/openclaw.js';
 import { ensureSandboxAwake } from '../services/sandbox.js';
+import { checkCredits, deductCredits, getUserCredits } from '../services/credits.js';
 
 export default async function chatRoutes(app: FastifyInstance) {
   app.addHook('preHandler', requireAuth);
@@ -11,6 +12,12 @@ export default async function chatRoutes(app: FastifyInstance) {
   app.post('/chat/message', async (request: FastifyRequest) => {
     const user = (request as any).user;
     const { message, conversationId } = request.body as { message: string; conversationId?: string };
+
+    // Check credit balance before proceeding
+    const creditCheck = checkCredits(user.userId);
+    if (!creditCheck.allowed) {
+      return { reply: `本月额度已用完（${creditCheck.quota} credits）。请联系管理员充值或等待下月重置。`, conversationId: conversationId || null, creditExhausted: true };
+    }
 
     // Ensure sandbox is awake; wake it if sleeping
     const wake = await ensureSandboxAwake(user.userId);
@@ -33,14 +40,19 @@ export default async function chatRoutes(app: FastifyInstance) {
     );
 
     // Forward to user's OpenClaw sandbox gateway
-    const reply = await forwardToOpenClaw(user.userId, message, convId);
+    const result = await forwardToOpenClaw(user.userId, message, convId);
+
+    // Deduct credits based on actual cost
+    if (result.costUsd > 0) {
+      deductCredits(user.userId, result.costUsd);
+    }
 
     // Save assistant reply
     db.prepare('INSERT INTO messages (id, conversation_id, role, content) VALUES (?, ?, ?, ?)').run(
-      uuid(), convId, 'assistant', reply
+      uuid(), convId, 'assistant', result.reply
     );
 
-    return { reply, conversationId: convId };
+    return { reply: result.reply, conversationId: convId };
   });
 
   app.get('/chat/history', async (request: FastifyRequest) => {
@@ -57,5 +69,11 @@ export default async function chatRoutes(app: FastifyInstance) {
       'SELECT id, role, content, created_at FROM messages WHERE conversation_id = ? ORDER BY created_at ASC'
     ).all(id);
     return messages;
+  });
+
+  // User's own credit balance
+  app.get('/chat/credits', async (request: FastifyRequest) => {
+    const user = (request as any).user;
+    return getUserCredits(user.userId);
   });
 }

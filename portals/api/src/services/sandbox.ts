@@ -136,7 +136,7 @@ function buildSandboxSecret(sandboxName: string, namespace: string, channels: Ch
   const apiKey = litellmKey || LITELLM_API_KEY;
   const secretData: Record<string, string> = {
     OC_LITELLM_API_KEY: Buffer.from(apiKey).toString('base64'),
-    OC_GATEWAY_TOKEN: Buffer.from(apiKey).toString('base64'),
+    OC_GATEWAY_TOKEN: Buffer.from(LITELLM_API_KEY).toString('base64'),
   };
 
   if (channels.feishu) {
@@ -379,7 +379,10 @@ function buildSandboxManifest(sandboxName: string, namespace: string, userId: st
                 runAsNonRoot: true,
                 capabilities: { drop: ['ALL'] },
               },
-              env: envVars,
+              env: [
+                ...envVars,
+                { name: 'NODE_OPTIONS', value: '--max-old-space-size=2560' },
+              ],
               command: [
                 'sh',
                 '-c',
