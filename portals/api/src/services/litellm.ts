@@ -63,20 +63,62 @@ export async function getSpendLogs(limit = 2000): Promise<LiteLLMSpendLog[]> {
   });
 }
 
-/** Generate a per-user LiteLLM virtual key. user_id maps to spend log `user` field. */
+/** Generate (or retrieve existing) per-user LiteLLM virtual key.
+ *  user_id maps to spend log `user` field.
+ *  If a key with the same alias already exists, delete and recreate it
+ *  to ensure user_id is set correctly.
+ */
 export async function generateUserKey(userId: string, userEmail: string): Promise<string> {
+  const alias = `sandbox-${userId.slice(0, 8)}`;
+  const headers = { 'Authorization': `Bearer ${LITELLM_MASTER_KEY}`, 'Content-Type': 'application/json' };
+
+  // Try to generate a new key
   const res = await fetch(`${LITELLM_URL}/key/generate`, {
-    method: 'POST',
-    headers: { 'Authorization': `Bearer ${LITELLM_MASTER_KEY}`, 'Content-Type': 'application/json' },
-    body: JSON.stringify({ user_id: userEmail, key_alias: `sandbox-${userId.slice(0, 8)}` }),
+    method: 'POST', headers,
+    body: JSON.stringify({ user_id: userEmail, key_alias: alias }),
     signal: AbortSignal.timeout(10000),
   });
-  if (!res.ok) {
-    const text = await res.text();
-    throw new Error(`LiteLLM /key/generate failed: ${res.status} ${text.slice(0, 200)}`);
+
+  if (res.ok) {
+    const data = await res.json() as { key: string };
+    return data.key;
   }
-  const data = await res.json() as { key: string };
-  return data.key;
+
+  // If alias already exists (400), find and delete the old key, then recreate
+  const errText = await res.text();
+  if (res.status === 400 && errText.includes('already exists')) {
+    // Find existing key by alias
+    const listRes = await fetch(`${LITELLM_URL}/key/list?key_alias=${encodeURIComponent(alias)}`, {
+      headers, signal: AbortSignal.timeout(10000),
+    });
+    if (listRes.ok) {
+      const listData = await listRes.json() as any;
+      const keys = listData.keys || [];
+      if (keys.length > 0) {
+        // Delete the old key
+        await fetch(`${LITELLM_URL}/key/delete`, {
+          method: 'POST', headers,
+          body: JSON.stringify({ keys }),
+          signal: AbortSignal.timeout(10000),
+        });
+      }
+    }
+
+    // Recreate with correct user_id
+    const retryRes = await fetch(`${LITELLM_URL}/key/generate`, {
+      method: 'POST', headers,
+      body: JSON.stringify({ user_id: userEmail, key_alias: alias }),
+      signal: AbortSignal.timeout(10000),
+    });
+    if (retryRes.ok) {
+      const data = await retryRes.json() as { key: string };
+      return data.key;
+    }
+    const retryErr = await retryRes.text();
+    throw new Error(`LiteLLM /key/generate retry failed: ${retryRes.status} ${retryErr.slice(0, 200)}`);
+  }
+
+  throw new Error(`LiteLLM /key/generate failed: ${res.status} ${errText.slice(0, 200)}`);
 }
 
 /** Get total global spend. */
